@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "llmovies"
+version = "0.1.0"
+description = ""
+authors = ["jlondonobo <j.londonobo@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+black = "^23.9.1"
+ruff = "^0.0.289"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
