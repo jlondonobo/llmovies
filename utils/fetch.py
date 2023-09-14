@@ -91,6 +91,9 @@ def _find_all_providers(providers: dict) -> list[str]:
     prov = providers["US"]["flatrate"]
     return [p["provider_id"] for p in prov]
 
+def _find_genre(genres: dict) -> str:
+    gen = [g["name"] for g in genres]
+    return ", ".join(gen)
 
 def to_pandas(results: list[dict[str, Any]]) -> pd.DataFrame:
     return pd.json_normalize(results, max_level=1)
@@ -113,13 +116,14 @@ if __name__ == "__main__":
     access_token = os.environ["TMDB_ACCESS_TOKEN"]
     if access_token:
         headers = _build_headers(access_token)
-        details = asyncio.run(main(movie_ids, headers, max_concurrent_requests=5))
+        details = asyncio.run(main(movie_ids, headers, max_concurrent_requests=3))
         parsed_details = [json.loads(result) for result in details]
         movies = to_pandas(parsed_details)
         movies_with_trailers = movies.assign(
             trailer=lambda df: df["videos.results"].apply(_find_trailer),
             provider_url=lambda df: df["watch/providers.results"].apply(_find_provider_url),
             providers=lambda df: df["watch/providers.results"].apply(_find_all_providers),
+            genres_list=lambda df: df["genres"].apply(_find_genre),
         )
         movies_with_trailers.to_parquet("data/final_movies.parquet")
 

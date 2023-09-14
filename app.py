@@ -3,17 +3,20 @@ import streamlit as st
 from utils.model import model
 from utils.weaviate_client import client
 
+st.set_page_config(page_title="LLMovies", page_icon="🍿")
+
 
 def search_movies(input: str) -> list[dict]:
     search_embedding = model.encode(input)
-    cols = ["title", "description", "listed_in", "release_year", "rating"]
-    return (
+    cols = ["title", "description", "genres", "release_date", "vote_average", "trailer_url"]
+    res =  (
         client.query.get("Movie", cols)
         .with_limit(15)
         .with_additional("distance")
         .with_near_vector(content={"vector": search_embedding})
         .do()["data"]["Get"]["Movie"]
     )
+    return sorted(res, key=lambda x: x["vote_average"], reverse=True)
 
 def reset_movies_state():
     st.session_state.movies = None
@@ -64,11 +67,15 @@ if next_button:
     st.experimental_rerun()
 
 
+def _prepare_youtube_url(video: str) -> str:
+    return f"https://www.youtube.com/watch?v={video}"
+
 
 start, end = get_item_location(st.session_state.page)
 for movie in movies[start:end]:
     st.write(f"Title: {movie['title']}")
     st.write(f"Description: {movie['description']}")
-    st.write(f"Genres: {movie['listed_in']}")
-    st.write(f"Film rating: {movie['rating']}")
+    st.write(f"Genres: {movie['genres']}")
+    st.write(f"Film score: {movie['vote_average']}")
+    st.video(_prepare_youtube_url(movie["trailer_url"]))
     st.write("----")
