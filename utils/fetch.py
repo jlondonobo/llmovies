@@ -67,6 +67,29 @@ async def main(movie_ids, headers: dict[str, str], max_concurrent_requests=20):
         responses = await asyncio.gather(*tasks)
         return responses
 
+# TODO: Improve this function
+def _find_trailer(videos_results: list[dict]) -> str | None:
+    for vid in videos_results:
+        is_trailer = vid["type"] == "Trailer"
+        is_official = vid["official"]
+        
+        if is_trailer and is_official:
+            return vid["key"]
+        elif is_trailer and not is_official:
+            backup_trailer = vid.get("key")
+    try:
+        return backup_trailer
+    except NameError:
+        return None
+    
+def _find_provider_url(providers: dict) -> str | None:
+    return providers["US"]["link"]
+
+
+def _find_all_providers(providers: dict) -> list[str]:
+    prov = providers["US"]["flatrate"]
+    return [p["provider_id"] for p in prov]
+
 
 def to_pandas(results: list[dict[str, Any]]) -> pd.DataFrame:
     return pd.json_normalize(results, max_level=1)
@@ -74,7 +97,7 @@ def to_pandas(results: list[dict[str, Any]]) -> pd.DataFrame:
 
 if __name__ == "__main__":
     PROVIDERS = [Providers.Netflix.value, Providers.DisenyPlus.value]
-    DATE_RANGE = (2020, 2023)
+    DATE_RANGE = (2023, 2023)
     PAGES = (1, 1)
     load_dotenv()
     
@@ -89,7 +112,15 @@ if __name__ == "__main__":
     access_token = os.environ["TMDB_ACCESS_TOKEN"]
     if access_token:
         headers = _build_headers(access_token)
-        details = asyncio.run(main(movie_ids, headers, max_concurrent_requests=10))
+        details = asyncio.run(main(movie_ids, headers, max_concurrent_requests=20))
         parsed_details = [json.loads(result) for result in details]
         movies = to_pandas(parsed_details)
-        movies.to_parquet("data/final_movies.parquet")
+        movies_with_trailers = movies.assign(
+            trailer=lambda df: df["videos.results"].apply(_find_trailer),
+            provider_url=lambda df: df["watch/providers.results"].apply(_find_provider_url),
+            providers=lambda df: df["watch/providers.results"].apply(_find_all_providers),
+        )
+        movies_with_trailers.to_parquet("data/final_movies.parquet")
+       
+        
+        
