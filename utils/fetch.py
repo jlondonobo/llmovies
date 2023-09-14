@@ -8,6 +8,7 @@ import aiohttp
 import pandas as pd
 from dotenv import load_dotenv
 from tmdbv3api import Discover, Movie, TMDb
+from tqdm.asyncio import tqdm_asyncio
 
 
 class Providers(str, Enum):
@@ -64,7 +65,7 @@ async def main(movie_ids, headers: dict[str, str], max_concurrent_requests=20):
             fetch_movie_details(session, movie_id, headers, semaphore)
             for movie_id in movie_ids
         ]
-        responses = await asyncio.gather(*tasks)
+        responses = await tqdm_asyncio.gather(*tasks)
         return responses
 
 # TODO: Improve this function
@@ -97,7 +98,7 @@ def to_pandas(results: list[dict[str, Any]]) -> pd.DataFrame:
 
 if __name__ == "__main__":
     PROVIDERS = [Providers.Netflix.value, Providers.DisenyPlus.value]
-    DATE_RANGE = (2023, 2023)
+    DATE_RANGE = (1990, 2023)
     PAGES = (1, 1)
     load_dotenv()
     
@@ -112,7 +113,7 @@ if __name__ == "__main__":
     access_token = os.environ["TMDB_ACCESS_TOKEN"]
     if access_token:
         headers = _build_headers(access_token)
-        details = asyncio.run(main(movie_ids, headers, max_concurrent_requests=20))
+        details = asyncio.run(main(movie_ids, headers, max_concurrent_requests=5))
         parsed_details = [json.loads(result) for result in details]
         movies = to_pandas(parsed_details)
         movies_with_trailers = movies.assign(
@@ -121,6 +122,6 @@ if __name__ == "__main__":
             providers=lambda df: df["watch/providers.results"].apply(_find_all_providers),
         )
         movies_with_trailers.to_parquet("data/final_movies.parquet")
-       
+
         
         
