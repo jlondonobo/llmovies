@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from enums import Providers
 from tqdm.asyncio import tqdm_asyncio
 
-TMDB_MAX_PAGES = 2
+TMDB_MAX_PAGES = 500
 
 
 def _get_ids(responses: list[dict[str, list[dict[str, Any]]]]) -> list[int]:
