@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from enums import Providers
 from tqdm.asyncio import tqdm_asyncio
 
-TMDB_MAX_PAGES = 500
+TMDB_MAX_PAGES = 2
 
 
 def _get_ids(responses: list[dict[str, list[dict[str, Any]]]]) -> list[int]:
@@ -49,9 +49,12 @@ async def fetch_movie_details(
     session, movie_id: int, headers: dict[str, str], semaphore: asyncio.Semaphore
 ):
     async with semaphore:
-        # TODO: Move these parameters to session.get
-        url = f"https://api.themoviedb.org/3/movie/{movie_id}?append_to_response=videos%2Cwatch%2Fproviders&language=en-US"
-        async with session.get(url, headers=headers) as response:
+        url = f"https://api.themoviedb.org/3/movie/{movie_id}"
+        params = {
+            "append_to_response": "videos,watch/providers",
+            "language": "en-US"
+        }
+        async with session.get(url, params=params, headers=headers) as response:
             return await response.json()
 
 
@@ -102,12 +105,12 @@ def _find_trailer(videos_results: list[dict]) -> str | None:
 
 
 def _find_provider_url(providers: dict) -> str | None:
-    return providers["US"]["link"]
+    return providers["US"].get("link")
 
 
 def _find_all_providers(providers: dict) -> list[str]:
-    prov = providers["US"]["flatrate"]
-    return [p["provider_id"] for p in prov]
+    prov = providers["US"].get("flatrate")
+    return [p["provider_id"] for p in prov] if prov else None
 
 
 def _find_genre(genres: dict) -> str:
@@ -130,13 +133,10 @@ if __name__ == "__main__":
         Providers.Hulu.value,
         Providers.AmazonPrimeVideo.value,
         Providers.AmazonVideo.value,
-        Providers.AppleTV.value,
     ]
     MAX_CONCURRENCY = 3
 
     headers = _build_headers(ACCESS_TOKEN)
-    # TODO: Consider iterating through providers, as all together exceeds 10,000 titles
-    # TODO: which is the limit for TMDB API.
     search_results = []
     for provider in PROVIDERS:
         search_results += asyncio.run(main_discover(provider, headers, MAX_CONCURRENCY))
@@ -153,6 +153,7 @@ if __name__ == "__main__":
         genres_list=lambda df: df["genres"].apply(_find_genre),
     )
 
+    movies_with_trailers.dropna(subset=['providers'], inplace=True)
     if not os.path.exists("data"):
         os.makedirs("data")
     movies_with_trailers.to_parquet("data/final_movies.parquet")
