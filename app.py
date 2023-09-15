@@ -32,7 +32,7 @@ def search_movies(text: str, providers: list[str]) -> list[dict]:
         .with_where(where_filter)
         .do()["data"]["Get"]["Movie"]
     )
-    return sorted(res, key=lambda x: x["vote_average"], reverse=True)
+    return res
 
 
 def reset_movies_state():
