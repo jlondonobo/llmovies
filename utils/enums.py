@@ -7,5 +7,5 @@ class Providers(str, Enum):
     AmazonPrimeVideo = "9"
     AmazonVideo = "10"
     DisenyPlus = "337"
-    HBOMax = "384"
+    Max = "1899"
     Hulu = "15"
