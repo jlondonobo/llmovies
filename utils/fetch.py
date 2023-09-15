@@ -7,57 +7,80 @@ import aiohttp
 import pandas as pd
 from dotenv import load_dotenv
 from enums import Providers
-from tmdbv3api import Discover, Movie, TMDb
 from tqdm.asyncio import tqdm_asyncio
 
-
-def _prepare_parameters(year: int, page: int, providers: list[str]) -> dict[str, Any]:
-    return {
-        "sort_by": "popularity.desc",
-        "watch_region": "US",
-        "with_watch_providers": "|".join(providers),
-        "page": page,
-        "year": year,
-    }
+TMDB_MAX_PAGES = 500
 
 
-def fetch(
-    year_range: tuple[int, int], page_range: tuple[int, int], providers: list[str]
-) -> list[dict]:
-    results_collection = []
-    for year in range(year_range[0], year_range[1] + 1):
-        for page in range(page_range[0], page_range[1] + 1):
-            parameters = _prepare_parameters(year, page, providers)
-            new_results = discover.discover_movies(parameters)["results"]
-            results_collection.extend(new_results)
-    return results_collection
-
-
-def _get_ids(res: list[dict[str, Any]]) -> list[int]:
-    return [r.get("id") for r in res]
+def _get_ids(responses: list[dict[str, list[dict[str, Any]]]]) -> list[int]:
+    id_collection = []
+    for res in responses:
+        for title in res["results"]:
+            id_collection.append(title.get("id"))
+    return id_collection
 
 
 def _build_headers(api_key: str) -> dict[str, str]:
     return {"accept": "application/json", "Authorization": f"Bearer {api_key}"}
 
 
+async def discover_movies(
+    session,
+    page: int,
+    providers: list[str],
+    headers: dict[str, str],
+    semaphore: asyncio.Semaphore,
+):
+    parameters = {
+        "include_adult": "false",
+        "include_video": "false",
+        "language": "en-US",
+        "sort_by": "popularity.desc",
+        "page": page,
+        "watch_region": "US",
+        "with_watch_providers": "|".join(providers),
+    }
+    async with semaphore:
+        url = "https://api.themoviedb.org/3/discover/movie"
+        async with session.get(url, params=parameters, headers=headers) as response:
+            return await response.json()
+
+
 async def fetch_movie_details(
     session, movie_id: int, headers: dict[str, str], semaphore: asyncio.Semaphore
 ):
     async with semaphore:
+        # TODO: Move these parameters to session.get
         url = f"https://api.themoviedb.org/3/movie/{movie_id}?append_to_response=videos%2Cwatch%2Fproviders&language=en-US"
         async with session.get(url, headers=headers) as response:
-            return await response.text()
+            return await response.json()
 
 
-async def main(movie_ids, headers: dict[str, str], max_concurrent_requests=20):
+async def main_discover(
+    providers: list[str], headers: dict[str, str], max_concurrent_requests: int
+) -> list[dict[str, list[dict[str, Any]]]]:
+    semaphore = asyncio.Semaphore(max_concurrent_requests)
+    async with aiohttp.ClientSession() as session:
+        first_page = await discover_movies(session, 1, providers, headers, semaphore)
+        total_pages = min(first_page["total_pages"] + 1, TMDB_MAX_PAGES)
+        tasks = [
+            discover_movies(session, page, providers, headers, semaphore)
+            for page in range(1, total_pages)
+        ]
+        responses = await tqdm_asyncio.gather(*tasks, desc="Discovering movies")
+        return responses
+
+
+async def main_details(
+    movie_ids, headers: dict[str, str], max_concurrent_requests: int
+):
     semaphore = asyncio.Semaphore(max_concurrent_requests)
     async with aiohttp.ClientSession() as session:
         tasks = [
             fetch_movie_details(session, movie_id, headers, semaphore)
             for movie_id in movie_ids
         ]
-        responses = await tqdm_asyncio.gather(*tasks)
+        responses = await tqdm_asyncio.gather(*tasks, desc="Fetching movie details")
         return responses
 
 
@@ -96,33 +119,26 @@ def to_pandas(results: list[dict[str, Any]]) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    PROVIDERS = [Providers.Netflix.value, Providers.DisenyPlus.value]
-    DATE_RANGE = (1990, 2023)
-    PAGES = (1, 1)
     load_dotenv()
+    ACCESS_TOKEN = os.environ["TMDB_ACCESS_TOKEN"]
 
-    tmdb = TMDb()
-    tmdb.api_key = os.environ["TMDB_API_KEY"]
-    movie = Movie()
-    discover = Discover()
+    PROVIDERS = [Providers.Netflix.value, Providers.DisenyPlus.value]
+    MAX_CONCURRENCY = 3
 
-    search_results = fetch(DATE_RANGE, PAGES, PROVIDERS)
+    headers = _build_headers(ACCESS_TOKEN)
+    # TODO: Consider iterating through providers, as all togeter exceeds 10,000 titles
+    # TODOS: which is the limit for TMDB API.
+    search_results = asyncio.run(main_discover(PROVIDERS, headers, MAX_CONCURRENCY))
     movie_ids = _get_ids(search_results)
 
-    access_token = os.environ["TMDB_ACCESS_TOKEN"]
-    if access_token:
-        headers = _build_headers(access_token)
-        details = asyncio.run(main(movie_ids, headers, max_concurrent_requests=3))
-        parsed_details = [json.loads(result) for result in details]
-        movies = to_pandas(parsed_details)
-        movies_with_trailers = movies.assign(
-            trailer=lambda df: df["videos.results"].apply(_find_trailer),
-            provider_url=lambda df: df["watch/providers.results"].apply(
-                _find_provider_url
-            ),
-            providers=lambda df: df["watch/providers.results"].apply(
-                _find_all_providers
-            ),
-            genres_list=lambda df: df["genres"].apply(_find_genre),
-        )
-        movies_with_trailers.to_parquet("data/final_movies.parquet")
+    details = asyncio.run(
+        main_details(movie_ids, headers, max_concurrent_requests=MAX_CONCURRENCY)
+    )
+    movies = to_pandas(details)
+    movies_with_trailers = movies.assign(
+        trailer=lambda df: df["videos.results"].apply(_find_trailer),
+        provider_url=lambda df: df["watch/providers.results"].apply(_find_provider_url),
+        providers=lambda df: df["watch/providers.results"].apply(_find_all_providers),
+        genres_list=lambda df: df["genres"].apply(_find_genre),
+    )
+    movies_with_trailers.to_parquet("data/final_movies.parquet")

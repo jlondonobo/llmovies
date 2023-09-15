@@ -63,7 +63,10 @@ search = st.text_input(
 )
 
 subscriptions = st.multiselect(
-    "Your subscriptions", [p.value for p in Providers], format_func=get_provider_name, placeholder="What are you paying for?"
+    "Your subscriptions",
+    [p.value for p in Providers],
+    format_func=get_provider_name,
+    placeholder="What are you paying for?",
 )
 
 if search == "":
@@ -73,9 +76,6 @@ if search == "":
 if subscriptions == []:
     st.warning("Double slacking!? Check your subscriptions")
     st.stop()
-    
-
-
 
 
 if st.session_state.movies is None:
