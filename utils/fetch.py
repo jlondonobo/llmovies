@@ -1,22 +1,14 @@
 import asyncio
 import json
 import os
-from enum import Enum
 from typing import Any
 
 import aiohttp
 import pandas as pd
 from dotenv import load_dotenv
+from enums import Providers
 from tmdbv3api import Discover, Movie, TMDb
 from tqdm.asyncio import tqdm_asyncio
-
-
-class Providers(str, Enum):
-    AppleTV = "2"
-    Netflix = "8"
-    AmazonPrimeVideo = "9"
-    AmazonVideo = "10"
-    DisenyPlus = "337"
 
 
 def _prepare_parameters(year: int, page: int, providers: list[str]) -> dict[str, Any]:
@@ -68,12 +60,13 @@ async def main(movie_ids, headers: dict[str, str], max_concurrent_requests=20):
         responses = await tqdm_asyncio.gather(*tasks)
         return responses
 
+
 # TODO: Improve this function
 def _find_trailer(videos_results: list[dict]) -> str | None:
     for vid in videos_results:
         is_trailer = vid["type"] == "Trailer"
         is_official = vid["official"]
-        
+
         if is_trailer and is_official:
             return vid["key"]
         elif is_trailer and not is_official:
@@ -82,7 +75,8 @@ def _find_trailer(videos_results: list[dict]) -> str | None:
         return backup_trailer
     except NameError:
         return None
-    
+
+
 def _find_provider_url(providers: dict) -> str | None:
     return providers["US"]["link"]
 
@@ -91,9 +85,11 @@ def _find_all_providers(providers: dict) -> list[str]:
     prov = providers["US"]["flatrate"]
     return [p["provider_id"] for p in prov]
 
+
 def _find_genre(genres: dict) -> str:
     gen = [g["name"] for g in genres]
     return ", ".join(gen)
+
 
 def to_pandas(results: list[dict[str, Any]]) -> pd.DataFrame:
     return pd.json_normalize(results, max_level=1)
@@ -104,7 +100,7 @@ if __name__ == "__main__":
     DATE_RANGE = (1990, 2023)
     PAGES = (1, 1)
     load_dotenv()
-    
+
     tmdb = TMDb()
     tmdb.api_key = os.environ["TMDB_API_KEY"]
     movie = Movie()
@@ -121,11 +117,12 @@ if __name__ == "__main__":
         movies = to_pandas(parsed_details)
         movies_with_trailers = movies.assign(
             trailer=lambda df: df["videos.results"].apply(_find_trailer),
-            provider_url=lambda df: df["watch/providers.results"].apply(_find_provider_url),
-            providers=lambda df: df["watch/providers.results"].apply(_find_all_providers),
+            provider_url=lambda df: df["watch/providers.results"].apply(
+                _find_provider_url
+            ),
+            providers=lambda df: df["watch/providers.results"].apply(
+                _find_all_providers
+            ),
             genres_list=lambda df: df["genres"].apply(_find_genre),
         )
         movies_with_trailers.to_parquet("data/final_movies.parquet")
-
-        
-        
