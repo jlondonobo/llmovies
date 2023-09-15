@@ -1,5 +1,4 @@
 import asyncio
-import json
 import os
 from typing import Any
 
@@ -17,7 +16,7 @@ def _get_ids(responses: list[dict[str, list[dict[str, Any]]]]) -> list[int]:
     for res in responses:
         for title in res["results"]:
             id_collection.append(title.get("id"))
-    return id_collection
+    return list(set(id_collection))
 
 
 def _build_headers(api_key: str) -> dict[str, str]:
@@ -27,7 +26,7 @@ def _build_headers(api_key: str) -> dict[str, str]:
 async def discover_movies(
     session,
     page: int,
-    providers: list[str],
+    provider: str,
     headers: dict[str, str],
     semaphore: asyncio.Semaphore,
 ):
@@ -38,7 +37,7 @@ async def discover_movies(
         "sort_by": "popularity.desc",
         "page": page,
         "watch_region": "US",
-        "with_watch_providers": "|".join(providers),
+        "with_watch_providers": provider,
     }
     async with semaphore:
         url = "https://api.themoviedb.org/3/discover/movie"
@@ -50,24 +49,29 @@ async def fetch_movie_details(
     session, movie_id: int, headers: dict[str, str], semaphore: asyncio.Semaphore
 ):
     async with semaphore:
-        # TODO: Move these parameters to session.get
-        url = f"https://api.themoviedb.org/3/movie/{movie_id}?append_to_response=videos%2Cwatch%2Fproviders&language=en-US"
-        async with session.get(url, headers=headers) as response:
+        url = f"https://api.themoviedb.org/3/movie/{movie_id}"
+        params = {
+            "append_to_response": "videos,watch/providers",
+            "language": "en-US"
+        }
+        async with session.get(url, params=params, headers=headers) as response:
             return await response.json()
 
 
 async def main_discover(
-    providers: list[str], headers: dict[str, str], max_concurrent_requests: int
+    provider: str, headers: dict[str, str], max_concurrent_requests: int
 ) -> list[dict[str, list[dict[str, Any]]]]:
     semaphore = asyncio.Semaphore(max_concurrent_requests)
     async with aiohttp.ClientSession() as session:
-        first_page = await discover_movies(session, 1, providers, headers, semaphore)
+        first_page = await discover_movies(session, 1, provider, headers, semaphore)
         total_pages = min(first_page["total_pages"] + 1, TMDB_MAX_PAGES)
         tasks = [
-            discover_movies(session, page, providers, headers, semaphore)
+            discover_movies(session, page, provider, headers, semaphore)
             for page in range(1, total_pages)
         ]
-        responses = await tqdm_asyncio.gather(*tasks, desc="Discovering movies")
+        responses = await tqdm_asyncio.gather(
+            *tasks, desc=f"Discovering provider_id = '{provider}' movies"
+        )
         return responses
 
 
@@ -101,12 +105,12 @@ def _find_trailer(videos_results: list[dict]) -> str | None:
 
 
 def _find_provider_url(providers: dict) -> str | None:
-    return providers["US"]["link"]
+    return providers["US"].get("link")
 
 
 def _find_all_providers(providers: dict) -> list[str]:
-    prov = providers["US"]["flatrate"]
-    return [p["provider_id"] for p in prov]
+    prov = providers["US"].get("flatrate")
+    return [p["provider_id"] for p in prov] if prov else None
 
 
 def _find_genre(genres: dict) -> str:
@@ -122,13 +126,20 @@ if __name__ == "__main__":
     load_dotenv()
     ACCESS_TOKEN = os.environ["TMDB_ACCESS_TOKEN"]
 
-    PROVIDERS = [Providers.Netflix.value, Providers.DisenyPlus.value]
+    PROVIDERS = [
+        Providers.Netflix.value,
+        Providers.DisenyPlus.value,
+        Providers.Max.value,
+        Providers.Hulu.value,
+        Providers.AmazonPrimeVideo.value,
+        Providers.AmazonVideo.value,
+    ]
     MAX_CONCURRENCY = 3
 
     headers = _build_headers(ACCESS_TOKEN)
-    # TODO: Consider iterating through providers, as all togeter exceeds 10,000 titles
-    # TODOS: which is the limit for TMDB API.
-    search_results = asyncio.run(main_discover(PROVIDERS, headers, MAX_CONCURRENCY))
+    search_results = []
+    for provider in PROVIDERS:
+        search_results += asyncio.run(main_discover(provider, headers, MAX_CONCURRENCY))
     movie_ids = _get_ids(search_results)
 
     details = asyncio.run(
@@ -141,4 +152,8 @@ if __name__ == "__main__":
         providers=lambda df: df["watch/providers.results"].apply(_find_all_providers),
         genres_list=lambda df: df["genres"].apply(_find_genre),
     )
+
+    movies_with_trailers.dropna(subset=['providers'], inplace=True)
+    if not os.path.exists("data"):
+        os.makedirs("data")
     movies_with_trailers.to_parquet("data/final_movies.parquet")
