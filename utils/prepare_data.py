@@ -92,5 +92,6 @@ with client.batch as batch:
             "watch": mov["watch"],
             "providers": mov["providers"],
             "vote_average": mov["vote_average"],
+            "show_id": mov["show_id"],
         }
         batch.add_data_object(properties, class_name="Movie", vector=mov["embedding"])
