@@ -25,6 +25,7 @@ tmdbv3api = "^1.9.0"
 asyncio = "^3.4.3"
 aiohttp = "^3.8.5"
 pydantic = "^2.3.0"
+pytest = "^7.4.2"
 
 
 [tool.poetry.group.dev.dependencies]

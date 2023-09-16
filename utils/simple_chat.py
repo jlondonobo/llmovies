@@ -8,6 +8,7 @@ from typing import Any
 import openai
 import prompts
 import streamlit as st
+import weaviate
 from dotenv import load_dotenv
 from enums import Providers
 from exceptions import LLMoviesOutputError
@@ -132,7 +133,9 @@ def try_extract_search_params(
 def query_weaviate(
     text: str,
     providers: list[str],
+    genres: str | list[str] | None,
     max_embed_recommendations: int,
+    weaviate_client: weaviate.Client,
 ) -> list[dict[str, Any]]:
     search_embedding = model.encode(text)
     cols = [
@@ -146,13 +149,28 @@ def query_weaviate(
         "providers",
         "show_id",
     ]
-    where_filter = {
+
+    operands = []
+    providers_where = {
         "path": ["providers"],
         "operator": "ContainsAny",
         "valueTextArray": providers,
     }
+    operands.append(providers_where)
+    if genres is not None:
+        if isinstance(genres, str):
+            genres = [genres]
+        categories_where = {
+            "path": ["genres"],
+            "operator": "ContainsAny",
+            "valueTextArray": genres,
+        }
+        operands.append(categories_where)
+
+    where_filter = {"operator": "And", "operands": operands}
+
     res = (
-        client.query.get("Movie", cols)
+        weaviate_client.query.get("Movie", cols)
         .with_limit(max_embed_recommendations)
         .with_additional("distance")
         .with_near_vector(content={"vector": search_embedding})
@@ -241,79 +259,95 @@ load_dotenv()
 
 # -- Parameters -- #
 
-CHAT_MODEL = os.environ["OPENAI_CHAT_MODEL"]
-INITIAL_ASSISTANT_MESSAGE = (
-    "Hi there, it's your pal Tony here! What'd you like to watch?"
-)
-N_MOVIES = 20
 
-st.title("🎬 LLMovies")
-st.subheader("Your go-to companion for movie nights")
-with st.sidebar:
-    # TODO: Remove default value in production
-    openai_key = st.text_input(
-        "Your OpenAI API key 🔑", type="password", value=os.getenv("OPENAI_KEY")
+def main():
+    CHAT_MODEL = os.environ["OPENAI_CHAT_MODEL"]
+    INITIAL_ASSISTANT_MESSAGE = (
+        "Hi there, it's your pal Tony here! What'd you like to watch?"
+    )
+    N_MOVIES = 20
+
+    st.title("🎬 LLMovies")
+    st.subheader("Your go-to companion for movie nights")
+    with st.sidebar:
+        # TODO: Remove default value in production
+        openai_key = st.text_input(
+            "Your OpenAI API key 🔑", type="password", value=os.getenv("OPENAI_KEY")
+        )
+
+        if openai_key is None:
+            st.warning("Hey! 🌟 Pop in your API key, and let's kick things off!")
+        openai.api_key = openai_key
+
+        available_services = st.multiselect(
+            "Your subscriptions 🍿",
+            [p.value for p in Providers],
+            format_func=get_provider_name,
+            placeholder="What are you paying for?",
+        )
+        if available_services == []:
+            st.warning("Next up, tap on your movie subscriptions! 🎬 Ready to roll?")
+            st.stop()
+
+    chatbot_setup(prompts.setup_system, INITIAL_ASSISTANT_MESSAGE, st.session_state)
+    render_chat_history(st.session_state.messages)
+
+    user_message = add_user_message_to_history(st.session_state)
+    search_params = try_extract_search_params(
+        user_message, st.session_state, CHAT_MODEL
     )
 
-    if openai_key is None:
-        st.warning("Hey! 🌟 Pop in your API key, and let's kick things off!")
-    openai.api_key = openai_key
+    if search_params is not None:
+        logger.debug(
+            f"Response from params generation: {search_params.model_dump_json()}"
+        )
 
-    available_services = st.multiselect(
-        "Your subscriptions 🍿",
-        [p.value for p in Providers],
-        format_func=get_provider_name,
-        placeholder="What are you paying for?",
-    )
-    if available_services == []:
-        st.warning("Next up, tap on your movie subscriptions! 🎬 Ready to roll?")
-        st.stop()
+        results_pool = query_weaviate(
+            search_params.topic,
+            available_services,
+            search_params.genre,
+            N_MOVIES,
+            client,
+        )
+        logger.debug(f"Movie pool: {json.dumps(results_pool)}")
 
-chatbot_setup(prompts.setup_system, INITIAL_ASSISTANT_MESSAGE, st.session_state)
-render_chat_history(st.session_state.messages)
+        formatted_weaviate_results, possible_ids = format_query_results(results_pool)
+        recommendations = llm_generate_recommendation(
+            user_message, formatted_weaviate_results, CHAT_MODEL
+        )
+        logger.debug(f"Final recommendations: {recommendations}")
 
-user_message = add_user_message_to_history(st.session_state)
-search_params = try_extract_search_params(user_message, st.session_state, CHAT_MODEL)
+        with st.chat_message("assistant"):
+            try:
+                # Extracts ids (as int) from LLM response
+                recommended_ids = extract_ids_from(recommendations, possible_ids)
 
-if search_params is not None:
-    logger.debug(f"Response from params generation: {search_params.model_dump_json()}")
+                # Uses extracted ids to filter results from Weaviate
+                recommended_metadata = [
+                    result
+                    for result in results_pool
+                    if result["show_id"] in recommended_ids
+                ]
 
-    results_pool = query_weaviate(search_params.topic, available_services, N_MOVIES)
-    logger.debug(f"Movie pool: {json.dumps(results_pool)}")
+                # Renders final recommendations
+                for movie in recommended_metadata:
+                    st.markdown(
+                        f"<h2>{movie['title']}</h2><p><a href={movie['watch']}>View</a></p>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(f"*{movie['description']}*")
+                    st.write(f"Genres: {movie['genres']}")
+                    st.write(f"Release date: {movie['release_date']}")
+                    st.write(f"Film score: {movie['vote_average']}")
+                    st.write(f"Cosine distance: {movie['_additional']['distance']}")
+                    st.video(_prepare_youtube_url(movie["trailer_url"]))
+                    st.write("----")
 
-    formatted_weaviate_results, possible_ids = format_query_results(results_pool)
-    recommendations = llm_generate_recommendation(
-        user_message, formatted_weaviate_results, CHAT_MODEL
-    )
-    logger.debug(f"Final recommendations: {recommendations}")
-
-    with st.chat_message("assistant"):
-        try:
-            # Extracts ids (as int) from LLM response
-            recommended_ids = extract_ids_from(recommendations, possible_ids)
-
-            # Uses extracted ids to filter results from Weaviate
-            recommended_metadata = [
-                result
-                for result in results_pool
-                if result["show_id"] in recommended_ids
-            ]
-
-            # Renders final recommendations
-            for movie in recommended_metadata:
-                st.markdown(
-                    f"<h2>{movie['title']}</h2><p><a href={movie['watch']}>View</a></p>",
-                    unsafe_allow_html=True,
+            except LLMoviesOutputError:
+                st.write(
+                    "I wasn't able to find any movies for you. Try modifying your query."
                 )
-                st.markdown(f"*{movie['description']}*")
-                st.write(f"Genres: {movie['genres']}")
-                st.write(f"Release date: {movie['release_date']}")
-                st.write(f"Film score: {movie['vote_average']}")
-                st.write(f"Cosine distance: {movie['_additional']['distance']}")
-                st.video(_prepare_youtube_url(movie["trailer_url"]))
-                st.write("----")
 
-        except LLMoviesOutputError:
-            st.write(
-                "I wasn't able to find any movies for you. Try modifying your query."
-            )
+
+if __name__ == "__main__":
+    main()
