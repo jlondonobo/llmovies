@@ -101,12 +101,11 @@ def render_chat_history(messages: list[dict[str, str]]) -> None:
                 st.write(message["content"])
 
 
-def add_user_message_to_history(state: SessionStateProxy) -> str:
-    if user_input := st.chat_input("Send a message"):
-        message = {"role": "user", "content": user_input}
-        state.messages.append(message)
-        with st.chat_message("user"):
-            st.write(user_input)
+def add_user_message_to_history(user_input: str, state: SessionStateProxy) -> str:
+    message = {"role": "user", "content": user_input}
+    state.messages.append(message)
+    with st.chat_message("user"):
+        st.write(user_input)
     return user_input
 
 
@@ -266,6 +265,10 @@ def main():
         "Hi there, it's your pal Tony here! What'd you like to watch?"
     )
     N_MOVIES = 20
+    # Initialize search_params and user_input
+    search_params = None
+    button_input = None
+    user_input = None
 
     st.title("🎬 LLMovies")
     st.subheader("Your go-to companion for movie nights")
@@ -288,14 +291,34 @@ def main():
         if available_services == []:
             st.warning("Next up, tap on your movie subscriptions! 🎬 Ready to roll?")
             st.stop()
+        
+        
+        st.subheader("Try me out! 🤖")
+        q1 = "I'd like to watch a movie about friendship."
+        if st.button(q1):
+            button_input = q1
 
+        q2 = "Can you recommend a comedy located in Italy?"
+        if st.button(q2):
+            button_input = q2
+
+        q3 = "Do you know any action movies with lots of explosions?"
+        if st.button(q3):
+            button_input = q3
+        
     chatbot_setup(prompts.setup_system, INITIAL_ASSISTANT_MESSAGE, st.session_state)
     render_chat_history(st.session_state.messages)
 
-    user_message = add_user_message_to_history(st.session_state)
-    search_params = try_extract_search_params(
-        user_message, st.session_state, CHAT_MODEL
-    )
+
+    user_input = st.chat_input("Send a message")
+        
+    if user_input is not None or button_input is not None:
+        input = button_input if button_input is not None else user_input
+        user_message = add_user_message_to_history(input, st.session_state)
+    
+        search_params = try_extract_search_params(
+            user_message, st.session_state, CHAT_MODEL
+        )
 
     if search_params is not None:
         logger.debug(
