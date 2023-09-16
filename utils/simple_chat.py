@@ -1,6 +1,8 @@
 import json
+import logging
 import os
 import re
+from logging import basicConfig, getLogger
 from typing import Any
 
 import openai
@@ -15,6 +17,11 @@ from pydantic_models import TopicInput
 from streamlit.runtime.state import SessionStateProxy
 from weaviate_client import client
 
+basicConfig(
+    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = getLogger(__name__)
+
 
 def generate_response(
     input: str, history: list[dict[str, str]], chat_model: str
@@ -25,11 +32,17 @@ def generate_response(
         st.stop()
     messages = history + [{"role": "user", "content": input}]
 
-    response = openai.ChatCompletion.create(
-        model=chat_model,
-        messages=messages,
-    )
-    return response["choices"][0]["message"]["content"]
+    try:
+        response = openai.ChatCompletion.create(
+            model=chat_model,
+            messages=messages,
+        )
+        return response["choices"][0]["message"]["content"]
+    except openai.error.AuthenticationError:
+        st.error(
+            "Oops! It seems like your API key took a little detour. 🙃 Double-check and make sure it's the right one, will ya?"
+        )
+        st.stop()
 
 
 def parse_response(response: str) -> TopicInput:
@@ -42,7 +55,7 @@ def parse_response(response: str) -> TopicInput:
         try:
             as_json = extract_json_from_string(response)
             return TopicInput(**as_json)
-        except json.decoder.JSONDecodeError:
+        except AttributeError:
             raise LLMoviesOutputError(
                 "The response from the chatbot was not valid JSON."
             )
@@ -52,7 +65,7 @@ def parse_response(response: str) -> TopicInput:
 
 
 def extract_json_from_string(string: str) -> dict:
-    pattern = r"(?<=```json\s)(\{[\s\S]*?\})(?=\s*```)"
+    pattern = r"\{[\s\S]*?\}"
     match = re.search(pattern, string)
     json_string = match.group(1)
     return json.loads(json_string)
@@ -227,7 +240,7 @@ def get_provider_name(provider_id: str):
 load_dotenv()
 
 # -- Parameters -- #
-openai.api_key = os.environ["OPENAI_KEY"]
+
 CHAT_MODEL = os.environ["OPENAI_CHAT_MODEL"]
 INITIAL_ASSISTANT_MESSAGE = (
     "Hi there, it's your pal Tony here! What'd you like to watch?"
@@ -237,14 +250,23 @@ N_MOVIES = 20
 st.title("🎬 LLMovies")
 st.subheader("Your go-to companion for movie nights")
 with st.sidebar:
+    # TODO: Remove default value in production
+    openai_key = st.text_input(
+        "Your OpenAI API key 🔑", type="password", value=os.getenv("OPENAI_KEY")
+    )
+
+    if openai_key is None:
+        st.warning("Hey! 🌟 Pop in your API key, and let's kick things off!")
+    openai.api_key = openai_key
+
     available_services = st.multiselect(
-        "Your subscriptions",
+        "Your subscriptions 🍿",
         [p.value for p in Providers],
         format_func=get_provider_name,
         placeholder="What are you paying for?",
     )
     if available_services == []:
-        st.warning("Double slacking!? Add at least one streaming platform.")
+        st.warning("Next up, tap on your movie subscriptions! 🎬 Ready to roll?")
         st.stop()
 
 chatbot_setup(prompts.setup_system, INITIAL_ASSISTANT_MESSAGE, st.session_state)
@@ -254,12 +276,17 @@ user_message = add_user_message_to_history(st.session_state)
 search_params = try_extract_search_params(user_message, st.session_state, CHAT_MODEL)
 
 if search_params is not None:
-    results_pool = query_weaviate(search_params.topic, available_services, N_MOVIES)
-    formatted_weaviate_results, possible_ids = format_query_results(results_pool)
+    logger.debug(f"Response from params generation: {search_params.model_dump_json()}")
 
+    results_pool = query_weaviate(search_params.topic, available_services, N_MOVIES)
+    logger.debug(f"Movie pool: {json.dumps(results_pool)}")
+
+    formatted_weaviate_results, possible_ids = format_query_results(results_pool)
     recommendations = llm_generate_recommendation(
         user_message, formatted_weaviate_results, CHAT_MODEL
     )
+    logger.debug(f"Final recommendations: {recommendations}")
+
     with st.chat_message("assistant"):
         try:
             # Extracts ids (as int) from LLM response
