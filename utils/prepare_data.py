@@ -36,7 +36,7 @@ for idx, val in tqdm(enumerate(movies)):
 
 features = datasets.Features(
     {
-        "show_id": datasets.Value(dtype="string"),
+        "show_id": datasets.Value(dtype="int32"),
         "title": datasets.Value(dtype="string"),
         "description": datasets.Value(dtype="string"),
         "release_date": datasets.Value(dtype="string"),
@@ -61,7 +61,7 @@ class_definition = {
     },
     "moduleConfig": {"generative-openai": {}},
     "properties": [
-        {"name": "show_id", "dataType": ["text"]},
+        {"name": "show_id", "dataType": ["int"]},
         {"name": "title", "dataType": ["text"]},
         {"name": "description", "dataType": ["text"]},
         {"name": "release_date", "dataType": ["text"]},
