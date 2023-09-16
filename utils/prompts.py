@@ -1,7 +1,7 @@
 from constants import CATEGORIES
 
 setup_system = f"""
-Given a user input, return the topics, genre, and media type as a JSON object with the keys "topic", "genre", and "media".
+Given a user input, return the topics, genres, and media type as a JSON object with the keys "topic", "genres", and "media".
 
 You MUST use the following categories: {", ".join(CATEGORIES)}.
 

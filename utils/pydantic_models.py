@@ -5,5 +5,5 @@ from pydantic import BaseModel
 
 class TopicInput(BaseModel):
     topic: str
-    genre: str | list[str] | None
-    media: Literal["TV", "Movie", ""] | None | str
+    genres: str | list[str] | None
+    media: Literal["TV", "Movie", ""] | None | list[str]

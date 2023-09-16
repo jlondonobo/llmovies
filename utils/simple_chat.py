@@ -305,7 +305,7 @@ def main():
         results_pool = query_weaviate(
             search_params.topic,
             available_services,
-            search_params.genre,
+            search_params.genres,
             N_MOVIES,
             client,
         )
