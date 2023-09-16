@@ -1,65 +1,24 @@
 import json
 import os
 import re
-from typing import Literal
+from typing import Any
 
 import openai
+import prompts
 import streamlit as st
 from dotenv import load_dotenv
+from enums import Providers
+from exceptions import LLMoviesOutputError
 from model import model
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
+from pydantic_models import TopicInput
 from streamlit.runtime.state import SessionStateProxy
 from weaviate_client import client
 
-MAX_EMBED_RECOMMENDATIONS = 20
 
-
-class TopicInput(BaseModel):
-    topic: str
-    genre: str | None
-    media: Literal["TV", "Movie", ""] | None | str
-
-
-class RecommendationList(BaseModel):
-    ids: list[int]
-
-
-class LLMoviesOutputError(Exception):
-    pass
-
-
-load_dotenv()
-
-openai.api_key = os.environ["OPENAI_KEY"]
-chat_model = os.environ["OPENAI_CHAT_MODEL"]
-
-
-categories = ["Action"]
-
-INPUT_PROMPT = f"""
-Given a user input, return the topics, genre, and media type as a JSON object with the keys "topic", "genre", and "media".
-
-You can use the following categories: {", ".join(categories)}.
-
-You can use the following media types: TV, Movie.
-
-You MUST not say anything after finishing.
-
-You MUST only respond with a JSON object.
-
-Your response will help filter some results, so don't say anything!
-
-If the user asks you anything different than movies or TV shows, respectfully stop the conversation.
-"""
-
-OUTPUT_PROMPT = """
-You are an expert movie recommender system. Your task is to return at most 3 movies from the list of passed movies. Return only the most affine to the user's prompt. If no movie is related to the user's prompt ask him to try again.
-
-You will only respond with a list of the sorted ids separated by commas, and nothing else. You must not add anything else to your answer
-"""
-
-
-def generate_response(input: str, history: list[dict[str, str]]) -> str:
+def generate_response(
+    input: str, history: list[dict[str, str]], chat_model: str
+) -> str:
     """Returns the response from the chatbot."""
     if input is None:
         st.warning("Please enter a message.")
@@ -99,13 +58,15 @@ def extract_json_from_string(string: str) -> dict:
     return json.loads(json_string)
 
 
-def enqueue_first_message(
-    state: SessionStateProxy, system_message: str, first_message: str
+def chatbot_setup(
+    system_message: str,
+    initial_assistant_message: str,
+    state: SessionStateProxy,
 ) -> None:
     if "messages" not in state.keys():
         state.messages = [
             {"role": "system", "content": system_message},
-            {"role": "assistant", "content": first_message},
+            {"role": "assistant", "content": initial_assistant_message},
         ]
 
 
@@ -117,7 +78,7 @@ def is_valid_json(string: str) -> bool:
     return True
 
 
-def print_message_list(messages: list[dict[str, str]]) -> None:
+def render_chat_history(messages: list[dict[str, str]]) -> None:
     for message in messages:
         is_json = is_valid_json(message["content"])
         is_system = message["role"] == "system"
@@ -126,7 +87,7 @@ def print_message_list(messages: list[dict[str, str]]) -> None:
                 st.write(message["content"])
 
 
-def enqueue_user_message(state: SessionStateProxy) -> str:
+def add_user_message_to_history(state: SessionStateProxy) -> str:
     if user_input := st.chat_input("Send a message"):
         message = {"role": "user", "content": user_input}
         state.messages.append(message)
@@ -135,12 +96,17 @@ def enqueue_user_message(state: SessionStateProxy) -> str:
     return user_input
 
 
-def handle_user_input(user_input: str, state: SessionStateProxy) -> None | TopicInput:
+def try_extract_search_params(
+    user_input: str, state: SessionStateProxy, chat_model: str
+) -> None | TopicInput:
+    """Tries to extract search parameters from input, if not possible renders answer."""
     is_last_message_from_user = state.messages[-1]["role"] == "user"
     if is_last_message_from_user:
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                response = generate_response(user_input, st.session_state.messages)
+                response = generate_response(
+                    user_input, st.session_state.messages, chat_model
+                )
                 try:
                     return parse_response(response)
                 except LLMoviesOutputError:
@@ -150,11 +116,11 @@ def handle_user_input(user_input: str, state: SessionStateProxy) -> None | Topic
         state.messages.append(message)
 
 
-def search_movies(
+def query_weaviate(
     text: str,
     providers: list[str],
     max_embed_recommendations: int,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     search_embedding = model.encode(text)
     cols = [
         "title",
@@ -183,50 +149,69 @@ def search_movies(
     return res
 
 
-def get_final_recommendations(movies_list: dict, input: str) -> RecommendationList:
-    json_input = movies_list | {"user_prompt": input}
+def llm_generate_recommendation(
+    user_message: str,
+    formatted_results: dict[str, list[dict[str, Any]]],
+    chat_model: str,
+) -> str:
+    """Receives formatted input & movies. Outputs final recommendations."""
+    json_input = formatted_results | {"user_prompt": user_message}
+    rendered_input = json.dumps(json_input)
+
     response = openai.ChatCompletion.create(
         model=chat_model,
         messages=[
-            {"role": "system", "content": OUTPUT_PROMPT},
-            {"role": "user", "content": json.dumps(json_input)},
+            {"role": "system", "content": prompts.final_recommendations_system},
+            {"role": "user", "content": rendered_input},
         ],
     )
     return response["choices"][0]["message"]["content"]
 
 
-def format_movie_list(movies: list[dict]):
-    movies_list = {
-        "list": [
-            {
-                "id": movie["show_id"],
-                "title": movie["title"],
-                "description": movie["description"],
-                "genres": movie["genres"],
-            }
-            for movie in movies
-        ]
-    }
-    movies_ids = [int(movie["id"]) for movie in movies_list["list"]]
-    return movies_list, movies_ids
+def format_query_results(
+    results: list[dict[str, Any]]
+) -> tuple[dict[str, list[dict[str, Any]]], list[int]]:
+    """Returns results as expected by LLM and a list of ids."""
+    formatted_collection = []
+    ids_collection = []
+    for result in results:
+        formatted = {
+            "id": result["show_id"],
+            "title": result["title"],
+            "description": result["description"],
+            "genres": result["genres"],
+        }
+        formatted_collection.append(formatted)
+        ids_collection.append(result["show_id"])
+
+    final_collection = {"list": formatted_collection}
+    return final_collection, ids_collection
 
 
-def parse_final_recommendations(
-    response: str, movies_ids: list[int]
-) -> list[int] | None:
-    try:
-        ids = [int(id) for id in response.split(", ") if id != ""]
-        recommendation_list = RecommendationList(ids=ids)
-    except ValueError:
-        raise LLMoviesOutputError(
-            "The response from the chatbot was not in the expected format."
-        )
-    if not all(id in movies_ids for id in ids):
-        raise LLMoviesOutputError(
-            "The response from the chatbot contained invalid ids."
-        )
-    else:
-        return recommendation_list.ids
+def extract_ids_from(recommendations: str, possible_ids: list[int]) -> list[int] | None:
+    """Receives a string of ids from the chatbot and returns them as int if valid."""
+
+    def extract_ids_as_int(string: str) -> list[int]:
+        try:
+            split_ids = string.split(", ")
+            return [int(id) for id in split_ids if id != ""]
+        except ValueError:
+            raise LLMoviesOutputError(
+                "The response from the chatbot was not in the expected format."
+            )
+
+    def handle_valid_ids(ids: list[int]) -> None:
+        if len(ids) == 0:
+            raise LLMoviesOutputError(
+                "Couldn't find any valid ids in the response from the chatbot."
+            )
+
+    ids_as_int = extract_ids_as_int(recommendations)
+
+    valid_id_collection = [id for id in ids_as_int if id in possible_ids]
+    handle_valid_ids(valid_id_collection)
+
+    return valid_id_collection
 
 
 def _prepare_youtube_url(video: str) -> str:
@@ -234,32 +219,61 @@ def _prepare_youtube_url(video: str) -> str:
     return f"https://www.youtube.com/watch?v={video}"
 
 
+def get_provider_name(provider_id: str):
+    return Providers(provider_id).name
+
+
 # -- APP --
+load_dotenv()
 
-FIRST_MESSAGE = "Hi there, it's your pal Tony here! What'd you like to watch?"
+# -- Parameters -- #
+openai.api_key = os.environ["OPENAI_KEY"]
+CHAT_MODEL = os.environ["OPENAI_CHAT_MODEL"]
+INITIAL_ASSISTANT_MESSAGE = (
+    "Hi there, it's your pal Tony here! What'd you like to watch?"
+)
+N_MOVIES = 20
 
-enqueue_first_message(st.session_state, INPUT_PROMPT, FIRST_MESSAGE)
-print_message_list(st.session_state.messages)
+st.title("🎬 LLMovies")
+st.subheader("Your go-to companion for movie nights")
+with st.sidebar:
+    available_services = st.multiselect(
+        "Your subscriptions",
+        [p.value for p in Providers],
+        format_func=get_provider_name,
+        placeholder="What are you paying for?",
+    )
+    if available_services == []:
+        st.warning("Double slacking!? Add at least one streaming platform.")
+        st.stop()
 
-user_input = enqueue_user_message(st.session_state)
-json_answer = handle_user_input(user_input, st.session_state)
+chatbot_setup(prompts.setup_system, INITIAL_ASSISTANT_MESSAGE, st.session_state)
+render_chat_history(st.session_state.messages)
 
+user_message = add_user_message_to_history(st.session_state)
+search_params = try_extract_search_params(user_message, st.session_state, CHAT_MODEL)
 
-if json_answer is not None:
-    movies = search_movies(json_answer.topic, ["8"], MAX_EMBED_RECOMMENDATIONS)
-    movies_list, movies_ids = format_movie_list(movies)
-    final_recommendations = get_final_recommendations(movies_list, user_input)
+if search_params is not None:
+    results_pool = query_weaviate(search_params.topic, available_services, N_MOVIES)
+    formatted_weaviate_results, possible_ids = format_query_results(results_pool)
+
+    recommendations = llm_generate_recommendation(
+        user_message, formatted_weaviate_results, CHAT_MODEL
+    )
     with st.chat_message("assistant"):
         try:
-            recommendation_ids = parse_final_recommendations(
-                final_recommendations, movies_ids
-            )
+            # Extracts ids (as int) from LLM response
+            recommended_ids = extract_ids_from(recommendations, possible_ids)
 
-            final_movies = [
-                movie for movie in movies if int(movie["show_id"]) in recommendation_ids
+            # Uses extracted ids to filter results from Weaviate
+            recommended_metadata = [
+                result
+                for result in results_pool
+                if result["show_id"] in recommended_ids
             ]
 
-            for movie in final_movies:
+            # Renders final recommendations
+            for movie in recommended_metadata:
                 st.markdown(
                     f"<h2>{movie['title']}</h2><p><a href={movie['watch']}>View</a></p>",
                     unsafe_allow_html=True,
@@ -273,4 +287,6 @@ if json_answer is not None:
                 st.write("----")
 
         except LLMoviesOutputError:
-            st.write(final_recommendations)
+            st.write(
+                "I wasn't able to find any movies for you. Try modifying your query."
+            )
