@@ -112,6 +112,7 @@ def _prepare_youtube_url(video: str) -> str:
 
 start, end = get_item_location(st.session_state.page)
 for movie in movies[start:end]:
+    print(movie)
     st.markdown(
         f"<h2>{movie['title']}</h2><p><a href={movie['watch']}>View</a></p>",
         unsafe_allow_html=True,
@@ -120,5 +121,6 @@ for movie in movies[start:end]:
     st.write(f"Genres: {movie['genres']}")
     st.write(f"Release date: {movie['release_date']}")
     st.write(f"Film score: {movie['vote_average']}")
+    st.write(f"Cosine distance: {movie['_additional']['distance']}")
     st.video(_prepare_youtube_url(movie["trailer_url"]))
     st.write("----")
