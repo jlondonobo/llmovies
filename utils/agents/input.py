@@ -30,7 +30,7 @@ def extract_query_params(input: str, chat_model: str) -> QueryParams:
         messages=[
             {
                 "role": "system",
-                "content": "Extract media deails from my requests. Only call functions if my input is related to movies or tv shows. If the user asks you anything different than movies or TV shows, respectfully stop the conversation.",
+                "content": "Extract media details from my requests. Only call functions if my input is related to movies or tv shows. If the user asks you anything different than movies or TV shows, respectfully stop the conversation.",
             },
             {"role": "user", "content": input},
         ],
