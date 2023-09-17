@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 from logging import basicConfig, getLogger
 from typing import Any
 
@@ -9,12 +8,11 @@ import openai
 import prompts
 import streamlit as st
 import weaviate
-from agents.input import QueryParams, extract_query_params
+from agents.input import extract_query_params
 from dotenv import load_dotenv
 from enums import Providers
 from exceptions import LLMoviesOutputError
 from model import model
-from streamlit.runtime.state import SessionStateProxy
 from weaviate_client import client
 
 basicConfig(
@@ -23,64 +21,12 @@ basicConfig(
 logger = getLogger(__name__)
 
 
-def generate_response(
-    input: str, history: list[dict[str, str]], chat_model: str
-) -> str:
-    """Returns the response from the chatbot."""
-    if input is None:
-        st.warning("Please enter a message.")
-        st.stop()
-    messages = history + [{"role": "user", "content": input}]
-
-    try:
-        response = openai.ChatCompletion.create(
-            model=chat_model,
-            messages=messages,
-        )
-        return response["choices"][0]["message"]["content"]
-    except openai.error.AuthenticationError:
-        st.error(
-            "Oops! It seems like your API key took a little detour. 🙃 Double-check and make sure it's the right one, will ya?"
-        )
-        st.stop()
-
-
-def extract_json_from_string(string: str) -> dict:
-    pattern = r"\{[\s\S]*?\}"
-    match = re.search(pattern, string)
-    json_string = match.group(1)
-    return json.loads(json_string)
-
-
-def is_valid_json(string: str) -> bool:
-    try:
-        json.loads(string)
-    except ValueError:
-        return False
-    return True
-
-
-def render_chat_history(messages: list[dict[str, str]]) -> None:
-    for message in messages:
-        is_json = is_valid_json(message["content"])
-        is_system = message["role"] == "system"
-        if not (is_json or is_system):
-            with st.chat_message(message["role"]):
-                st.write(message["content"])
-
-
-def add_user_message_to_history(user_input: str, state: SessionStateProxy) -> None:
-    message = {"role": "user", "content": user_input}
-    state.messages.append(message)
-    with st.chat_message("user"):
-        st.write(user_input)
-
-
 def query_weaviate(
     text: str,
     providers: list[str],
     genres: str | list[str] | None,
     max_embed_recommendations: int,
+    min_vote_count: int,
     weaviate_client: weaviate.Client,
 ) -> list[dict[str, Any]]:
     search_embedding = model.encode(text)
@@ -90,6 +36,7 @@ def query_weaviate(
         "genres",
         "release_date",
         "vote_average",
+        "vote_count",
         "trailer_url",
         "watch",
         "providers",
@@ -103,6 +50,14 @@ def query_weaviate(
         "valueTextArray": providers,
     }
     operands.append(providers_where)
+    
+    min_vote_count_where = {
+        "path": ["vote_count"],
+        "operator": "GreaterThan",
+        "valueInt": min_vote_count,
+    }
+    operands.append(min_vote_count_where)
+    
     if genres != "ALL":
         if isinstance(genres, str):
             genres = [genres]
@@ -201,17 +156,12 @@ def get_provider_name(provider_id: str):
 
 
 # -- APP --
-load_dotenv()
-
-# -- Parameters -- #
-
 
 def main():
+    load_dotenv()
     CHAT_MODEL = os.environ["OPENAI_CHAT_MODEL"]
-    INITIAL_ASSISTANT_MESSAGE = (
-        "Hi there, it's your pal Tony here! What'd you like to watch?"
-    )
-    N_MOVIES = 20
+    N_MOVIES = 10
+    MIN_VOTE_COUNT = 500
     # Initialize search_params and user_input
     search_params = None
     button_input = None
@@ -257,7 +207,13 @@ def main():
     if user_input != "" or button_input is not None:
         input = button_input if button_input is not None else user_input
         # add_user_message_to_history(input, st.session_state)
-        search_params = extract_query_params(input, CHAT_MODEL)
+        try:
+            search_params = extract_query_params(input, CHAT_MODEL)
+        except openai.error.AuthenticationError:
+            st.error(
+                "Oops! It seems like your API key took a little detour. 🙃 Double-check and make sure it's the right one, will ya?"
+            )
+            st.stop()
 
     if search_params is not None:
         logger.debug(
@@ -269,6 +225,7 @@ def main():
             available_services,
             search_params.genre,
             N_MOVIES,
+            MIN_VOTE_COUNT,
             client,
         )
         logger.debug(f"Movie pool: {json.dumps(results_pool)}")

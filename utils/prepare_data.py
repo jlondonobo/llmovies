@@ -28,6 +28,7 @@ for idx, val in tqdm(enumerate(movies)):
             "trailer_url": val["trailer"],
             "watch": val["provider_url"],
             "vote_average": val["vote_average"],
+            "vote_count": val["vote_count"],
             "providers": val["providers"],
             "full_description": full_description,
             "embedding": embedding,
@@ -46,6 +47,7 @@ features = datasets.Features(
         "watch": datasets.Value(dtype="string"),
         "providers": datasets.Sequence(feature=datasets.Value(dtype="string")),
         "vote_average": datasets.Value(dtype="string"),
+        "vote_count": datasets.Value(dtype="int32"),
         "embedding": datasets.Sequence(
             feature=datasets.Value(dtype="float32"), length=384
         ),
@@ -70,6 +72,7 @@ class_definition = {
         {"name": "watch", "dataType": ["text"]},
         {"name": "providers", "dataType": ["text[]"]},
         {"name": "vote_average", "dataType": ["text"]},
+        {"name": "vote_count", "dataType": ["int"]},
         {"name": "full_description", "dataType": ["text"]},
     ],
 }
@@ -92,6 +95,7 @@ with client.batch as batch:
             "watch": mov["watch"],
             "providers": mov["providers"],
             "vote_average": mov["vote_average"],
+            "vote_count": mov["vote_count"],
             "show_id": mov["show_id"],
         }
         batch.add_data_object(properties, class_name="Movie", vector=mov["embedding"])
