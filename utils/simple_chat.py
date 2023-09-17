@@ -222,7 +222,9 @@ def main():
             # Uses titles to sort results from Weaviate
             recommended_metadata = sorted(
                 results_pool,
-                key=lambda k: recommended_titles.index(k["title"]),
+                key=lambda k: recommended_titles.index(k["title"])
+                if k["title"] in recommended_titles
+                else N_MOVIES + 1,
             )
 
             # Renders final recommendations
