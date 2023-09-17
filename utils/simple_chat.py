@@ -121,9 +121,11 @@ def extract_titles_from(
     return valid_id_collection
 
 
-def _prepare_youtube_url(video: str) -> str:
-    # TODO: do something if video is None
-    return f"https://www.youtube.com/watch?v={video}"
+def show_trailer(video: str | None):
+    if video:
+        st.video(f"https://www.youtube.com/watch?v={video}")
+    else:
+        st.write(prompts.no_trailer_message)
 
 
 def get_provider_name(provider_id: str):
@@ -238,7 +240,8 @@ def main():
                 st.write(f"Release date: {movie['release_date']}")
                 st.write(f"Film score: {movie['vote_average']}")
                 st.write(f"Cosine distance: {movie['_additional']['distance']}")
-                st.video(_prepare_youtube_url(movie["trailer_url"]))
+                movie["trailer_url"] = None
+                show_trailer(movie["trailer_url"])
                 st.write("----")
 
         except LLMoviesOutputError:
