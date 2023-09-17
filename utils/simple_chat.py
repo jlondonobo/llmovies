@@ -134,6 +134,7 @@ def query_weaviate(
     providers: list[str],
     genres: str | list[str] | None,
     max_embed_recommendations: int,
+    min_vote_count: int,
     weaviate_client: weaviate.Client,
 ) -> list[dict[str, Any]]:
     search_embedding = model.encode(text)
@@ -143,6 +144,7 @@ def query_weaviate(
         "genres",
         "release_date",
         "vote_average",
+        "vote_count",
         "trailer_url",
         "watch",
         "providers",
@@ -156,6 +158,12 @@ def query_weaviate(
         "valueTextArray": providers,
     }
     operands.append(providers_where)
+    min_vote_count_where = {
+        "path": ["vote_count"],
+        "operator": "GreaterThan",
+        "valueInt": min_vote_count,
+    }
+    operands.append(min_vote_count_where)
     if genres is not None:
         if isinstance(genres, str):
             genres = [genres]
@@ -264,7 +272,8 @@ def main():
     INITIAL_ASSISTANT_MESSAGE = (
         "Hi there, it's your pal Tony here! What'd you like to watch?"
     )
-    N_MOVIES = 20
+    N_MOVIES = 10
+    MIN_VOTE_COUNT = 500
     # Initialize search_params and user_input
     search_params = None
     button_input = None
@@ -291,8 +300,7 @@ def main():
         if available_services == []:
             st.warning("Next up, tap on your movie subscriptions! 🎬 Ready to roll?")
             st.stop()
-        
-        
+
         st.subheader("Try me out! 🤖")
         q1 = "I'd like to watch a movie about friendship."
         if st.button(q1):
@@ -305,17 +313,16 @@ def main():
         q3 = "Do you know any action movies with lots of explosions?"
         if st.button(q3):
             button_input = q3
-        
+
     chatbot_setup(prompts.setup_system, INITIAL_ASSISTANT_MESSAGE, st.session_state)
     render_chat_history(st.session_state.messages)
 
-
     user_input = st.chat_input("Send a message")
-        
+
     if user_input is not None or button_input is not None:
         input = button_input if button_input is not None else user_input
         user_message = add_user_message_to_history(input, st.session_state)
-    
+
         search_params = try_extract_search_params(
             user_message, st.session_state, CHAT_MODEL
         )
@@ -330,6 +337,7 @@ def main():
             available_services,
             search_params.genres,
             N_MOVIES,
+            MIN_VOTE_COUNT,
             client,
         )
         logger.debug(f"Movie pool: {json.dumps(results_pool)}")
