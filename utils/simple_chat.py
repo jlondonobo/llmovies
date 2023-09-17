@@ -134,6 +134,7 @@ def query_weaviate(
     providers: list[str],
     genres: str | list[str] | None,
     max_embed_recommendations: int,
+    min_vote_count: int,
     weaviate_client: weaviate.Client,
 ) -> list[dict[str, Any]]:
     search_embedding = model.encode(text)
@@ -156,6 +157,12 @@ def query_weaviate(
         "valueTextArray": providers,
     }
     operands.append(providers_where)
+    min_vote_count_where = {
+        "path": ["vote_count"],
+        "operator": "GreaterThan",
+        "valueInt": min_vote_count,
+    }
+    operands.append(min_vote_count_where)
     if genres is not None:
         if isinstance(genres, str):
             genres = [genres]
@@ -265,6 +272,7 @@ def main():
         "Hi there, it's your pal Tony here! What'd you like to watch?"
     )
     N_MOVIES = 20
+    MIN_VOTE_COUNT = 30
     # Initialize search_params and user_input
     search_params = None
     button_input = None
@@ -328,6 +336,7 @@ def main():
             available_services,
             search_params.genres,
             N_MOVIES,
+            MIN_VOTE_COUNT,
             client,
         )
         logger.debug(f"Movie pool: {json.dumps(results_pool)}")
