@@ -144,6 +144,7 @@ def query_weaviate(
         "genres",
         "release_date",
         "vote_average",
+        "vote_count",
         "trailer_url",
         "watch",
         "providers",
@@ -271,8 +272,8 @@ def main():
     INITIAL_ASSISTANT_MESSAGE = (
         "Hi there, it's your pal Tony here! What'd you like to watch?"
     )
-    N_MOVIES = 20
-    MIN_VOTE_COUNT = 30
+    N_MOVIES = 10
+    MIN_VOTE_COUNT = 500
     # Initialize search_params and user_input
     search_params = None
     button_input = None
