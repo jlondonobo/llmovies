@@ -291,8 +291,7 @@ def main():
         if available_services == []:
             st.warning("Next up, tap on your movie subscriptions! 🎬 Ready to roll?")
             st.stop()
-        
-        
+
         st.subheader("Try me out! 🤖")
         q1 = "I'd like to watch a movie about friendship."
         if st.button(q1):
@@ -305,17 +304,16 @@ def main():
         q3 = "Do you know any action movies with lots of explosions?"
         if st.button(q3):
             button_input = q3
-        
+
     chatbot_setup(prompts.setup_system, INITIAL_ASSISTANT_MESSAGE, st.session_state)
     render_chat_history(st.session_state.messages)
 
-
     user_input = st.chat_input("Send a message")
-        
+
     if user_input is not None or button_input is not None:
         input = button_input if button_input is not None else user_input
         user_message = add_user_message_to_history(input, st.session_state)
-    
+
         search_params = try_extract_search_params(
             user_message, st.session_state, CHAT_MODEL
         )
