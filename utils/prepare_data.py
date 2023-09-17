@@ -1,62 +1,13 @@
-# Read netflix movies
-import datasets
+import numpy as np
+import pandas as pd
+import weaviate
 from model import model
 from tqdm import tqdm
 from weaviate_client import client
 
-DATA_SOURCE = "data/final_movies.parquet"
-movies = datasets.DatasetDict.from_parquet(DATA_SOURCE)
+tqdm.pandas(desc="Processing embeddings")
 
-
-def format_description(row: dict[str, str | list]) -> str:
-    title = row["title"]
-    description = row["overview"]
-    genres = row["genres_list"]
-    return f"Title: {title}\nDescription: {description}\nGenres: {genres}"
-
-processed_samples = []
-for idx, val in tqdm(enumerate(movies)):
-    full_description = format_description(val)
-    embedding = model.encode(full_description)
-    processed_samples.append(
-        {
-            "show_id": val["id"],
-            "title": val["title"],
-            "description": val["overview"],
-            "release_date": val["release_date"],
-            "genres": val["genres_list"],
-            "trailer_url": val["trailer"],
-            "watch": val["provider_url"],
-            "vote_average": val["vote_average"],
-            "vote_count": val["vote_count"],
-            "providers": val["providers"],
-            "full_description": full_description,
-            "embedding": embedding,
-        }
-    )
-
-features = datasets.Features(
-    {
-        "show_id": datasets.Value(dtype="int32"),
-        "title": datasets.Value(dtype="string"),
-        "description": datasets.Value(dtype="string"),
-        "release_date": datasets.Value(dtype="string"),
-        "genres": datasets.Value(dtype="string"),
-        "full_description": datasets.Value(dtype="string"),
-        "trailer_url": datasets.Value(dtype="string"),
-        "watch": datasets.Value(dtype="string"),
-        "providers": datasets.Sequence(feature=datasets.Value(dtype="string")),
-        "vote_average": datasets.Value(dtype="string"),
-        "vote_count": datasets.Value(dtype="int32"),
-        "embedding": datasets.Sequence(
-            feature=datasets.Value(dtype="float32"), length=384
-        ),
-    }
-)
-movies_dataset = datasets.Dataset.from_list(processed_samples, features=features)
-
-
-class_definition = {
+CLASS_DEFINITION = {
     "class": "Movie",
     "vectorIndexConfig": {
         "distance": "cosine",
@@ -67,35 +18,107 @@ class_definition = {
         {"name": "title", "dataType": ["text"]},
         {"name": "description", "dataType": ["text"]},
         {"name": "release_date", "dataType": ["text"]},
-        {"name": "genres", "dataType": ["text"]},
+        {"name": "genres", "dataType": ["text[]"]},
         {"name": "trailer_url", "dataType": ["text"]},
         {"name": "watch", "dataType": ["text"]},
-        {"name": "providers", "dataType": ["text[]"]},
-        {"name": "vote_average", "dataType": ["text"]},
+        {"name": "providers", "dataType": ["int[]"]},
+        {"name": "vote_average", "dataType": ["number"]},
         {"name": "vote_count", "dataType": ["int"]},
         {"name": "full_description", "dataType": ["text"]},
+        {"name": "imdb_vote_average", "dataType": ["number"]},
+        {"name": "imdb_vote_count", "dataType": ["int"]},
     ],
 }
 
-client.schema.delete_class("Movie")
 
-if not client.schema.exists("Movie"):
-    client.schema.create_class(class_definition)
+def download_imdb_ratings() -> pd.DataFrame:
+    url = "https://datasets.imdbws.com/title.ratings.tsv.gz"
+    return pd.read_csv(url, sep="\t")
 
-client.batch.configure(batch_size=100)
-with client.batch as batch:
-    for mov in movies_dataset:
-        properties = {
-            "title": mov["title"],
-            "description": mov["description"],
-            "full_description": mov["full_description"],
-            "release_date": mov["release_date"],
-            "genres": mov["genres"],
-            "trailer_url": mov["trailer_url"],
-            "watch": mov["watch"],
-            "providers": mov["providers"],
-            "vote_average": mov["vote_average"],
-            "vote_count": mov["vote_count"],
-            "show_id": mov["show_id"],
+
+def add_imdb_ratings(movies: pd.DataFrame, imdb_ratings: pd.DataFrame) -> pd.DataFrame:
+    # Some movies have no IMDb id (None), so we need m:1
+    imdb_formatted = imdb_ratings.rename(
+        columns={
+            "tconst": "imdb_id",
+            "averageRating": "imdb_vote_average",
+            "numVotes": "imdb_vote_count",
         }
-        batch.add_data_object(properties, class_name="Movie", vector=mov["embedding"])
+    )
+
+    merged = movies.merge(
+        imdb_formatted,
+        on="imdb_id",
+        how="left",
+        validate="m:1",
+    )
+    return merged
+
+
+def read_movies(source: str) -> pd.DataFrame:
+    res = pd.read_parquet(source)
+    return res.assign(
+        providers=lambda df: df["providers"].apply(np.ndarray.tolist),
+        genres_list=lambda df: df["genres_list"].str.split(", ")
+    )
+
+
+def format_description(row: dict[str, str | list]) -> str:
+    return row["overview"]
+
+
+def add_embeddings(data: pd.DataFrame) -> pd.DataFrame:
+    return data.assign(
+        full_description=lambda df: df.apply(format_description, axis=1),
+        embedding=lambda df: df["full_description"].progress_apply(model.encode),
+    )
+
+def parse_null_float(val: float) -> float | None:
+    if np.isnan(val):
+        return None
+    return val
+
+def parse_null_int(val: int) -> int | None:
+    if np.isnan(val):
+        return None
+    return int(val)
+
+def save_to_weaviate(data: pd.DataFrame, client: weaviate.Client) -> None:
+    client.batch.configure(batch_size=100)
+    with client.batch as batch:
+        for idx, row in data.iterrows():
+            properties = {
+                "show_id": row["id"],
+                "title": row["title"],
+                "description": row["overview"],
+                "full_description": row["full_description"],
+                "release_date": row["release_date"],
+                "genres": row["genres_list"],
+                "trailer_url": row["trailer"],
+                "watch": row["provider_url"],
+                "providers": row["providers"],
+                "vote_average": parse_null_float(row["vote_average"]),
+                "vote_count": row["vote_count"],
+                "imdb_vote_average": parse_null_float(row["imdb_vote_average"]),
+                "imdb_vote_count": parse_null_int(row["imdb_vote_count"]),
+            }
+            batch.add_data_object(
+                properties, class_name="Movie", vector=row["embedding"]
+            )
+
+
+def main():
+    DATA_SOURCE = "data/final_movies.parquet"
+    movies = read_movies(DATA_SOURCE)
+    imdb_ratings = download_imdb_ratings()
+    moviews_with_imbd_ratings = add_imdb_ratings(movies, imdb_ratings)
+    movies_with_embeddings = add_embeddings(moviews_with_imbd_ratings)
+
+    if client.schema.exists("Movie"):
+        client.schema.delete_class("Movie")
+    client.schema.create_class(CLASS_DEFINITION)
+    save_to_weaviate(movies_with_embeddings, client)
+
+
+if __name__ == "__main__":
+    main()
