@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 from logging import basicConfig, getLogger
 from typing import Any
 
@@ -9,124 +8,17 @@ import openai
 import prompts
 import streamlit as st
 import weaviate
+from agents.input import extract_query_params
 from dotenv import load_dotenv
 from enums import Providers
 from exceptions import LLMoviesOutputError
 from model import model
-from pydantic import ValidationError
-from pydantic_models import TopicInput
-from streamlit.runtime.state import SessionStateProxy
 from weaviate_client import client
 
 basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = getLogger(__name__)
-
-
-def generate_response(
-    input: str, history: list[dict[str, str]], chat_model: str
-) -> str:
-    """Returns the response from the chatbot."""
-    if input is None:
-        st.warning("Please enter a message.")
-        st.stop()
-    messages = history + [{"role": "user", "content": input}]
-
-    try:
-        response = openai.ChatCompletion.create(
-            model=chat_model,
-            messages=messages,
-        )
-        return response["choices"][0]["message"]["content"]
-    except openai.error.AuthenticationError:
-        st.error(
-            "Oops! It seems like your API key took a little detour. 🙃 Double-check and make sure it's the right one, will ya?"
-        )
-        st.stop()
-
-
-def parse_response(response: str) -> TopicInput:
-    """Make sure the response is valid JSON and can be parsed into a TopicInput."""
-    try:
-        as_json = json.loads(response)
-        topic_input = TopicInput(**as_json)
-        return topic_input
-    except json.decoder.JSONDecodeError:
-        try:
-            as_json = extract_json_from_string(response)
-            return TopicInput(**as_json)
-        except AttributeError:
-            raise LLMoviesOutputError(
-                "The response from the chatbot was not valid JSON."
-            )
-    except ValidationError as e:
-        print(e.errors())
-        raise LLMoviesOutputError
-
-
-def extract_json_from_string(string: str) -> dict:
-    pattern = r"\{[\s\S]*?\}"
-    match = re.search(pattern, string)
-    json_string = match.group(1)
-    return json.loads(json_string)
-
-
-def chatbot_setup(
-    system_message: str,
-    initial_assistant_message: str,
-    state: SessionStateProxy,
-) -> None:
-    if "messages" not in state.keys():
-        state.messages = [
-            {"role": "system", "content": system_message},
-            {"role": "assistant", "content": initial_assistant_message},
-        ]
-
-
-def is_valid_json(string: str) -> bool:
-    try:
-        json.loads(string)
-    except ValueError:
-        return False
-    return True
-
-
-def render_chat_history(messages: list[dict[str, str]]) -> None:
-    for message in messages:
-        is_json = is_valid_json(message["content"])
-        is_system = message["role"] == "system"
-        if not (is_json or is_system):
-            with st.chat_message(message["role"]):
-                st.write(message["content"])
-
-
-def add_user_message_to_history(user_input: str, state: SessionStateProxy) -> str:
-    message = {"role": "user", "content": user_input}
-    state.messages.append(message)
-    with st.chat_message("user"):
-        st.write(user_input)
-    return user_input
-
-
-def try_extract_search_params(
-    user_input: str, state: SessionStateProxy, chat_model: str
-) -> None | TopicInput:
-    """Tries to extract search parameters from input, if not possible renders answer."""
-    is_last_message_from_user = state.messages[-1]["role"] == "user"
-    if is_last_message_from_user:
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                response = generate_response(
-                    user_input, st.session_state.messages, chat_model
-                )
-                try:
-                    return parse_response(response)
-                except LLMoviesOutputError:
-                    st.write(response)
-
-        message = {"role": "assistant", "content": response}
-        state.messages.append(message)
 
 
 def query_weaviate(
@@ -158,13 +50,15 @@ def query_weaviate(
         "valueTextArray": providers,
     }
     operands.append(providers_where)
+    
     min_vote_count_where = {
         "path": ["vote_count"],
         "operator": "GreaterThan",
         "valueInt": min_vote_count,
     }
     operands.append(min_vote_count_where)
-    if genres is not None:
+    
+    if genres != "ALL":
         if isinstance(genres, str):
             genres = [genres]
         categories_where = {
@@ -262,16 +156,10 @@ def get_provider_name(provider_id: str):
 
 
 # -- APP --
-load_dotenv()
-
-# -- Parameters -- #
-
 
 def main():
+    load_dotenv()
     CHAT_MODEL = os.environ["OPENAI_CHAT_MODEL"]
-    INITIAL_ASSISTANT_MESSAGE = (
-        "Hi there, it's your pal Tony here! What'd you like to watch?"
-    )
     N_MOVIES = 10
     MIN_VOTE_COUNT = 500
     # Initialize search_params and user_input
@@ -314,18 +202,18 @@ def main():
         if st.button(q3):
             button_input = q3
 
-    chatbot_setup(prompts.setup_system, INITIAL_ASSISTANT_MESSAGE, st.session_state)
-    render_chat_history(st.session_state.messages)
+        user_input = st.text_input("Send a message")
 
-    user_input = st.chat_input("Send a message")
-
-    if user_input is not None or button_input is not None:
+    if user_input != "" or button_input is not None:
         input = button_input if button_input is not None else user_input
-        user_message = add_user_message_to_history(input, st.session_state)
-
-        search_params = try_extract_search_params(
-            user_message, st.session_state, CHAT_MODEL
-        )
+        # add_user_message_to_history(input, st.session_state)
+        try:
+            search_params = extract_query_params(input, CHAT_MODEL)
+        except openai.error.AuthenticationError:
+            st.error(
+                "Oops! It seems like your API key took a little detour. 🙃 Double-check and make sure it's the right one, will ya?"
+            )
+            st.stop()
 
     if search_params is not None:
         logger.debug(
@@ -333,9 +221,9 @@ def main():
         )
 
         results_pool = query_weaviate(
-            search_params.topic,
+            search_params.semantic_search,
             available_services,
-            search_params.genres,
+            search_params.genre,
             N_MOVIES,
             MIN_VOTE_COUNT,
             client,
@@ -344,40 +232,39 @@ def main():
 
         formatted_weaviate_results, possible_ids = format_query_results(results_pool)
         recommendations = llm_generate_recommendation(
-            user_message, formatted_weaviate_results, CHAT_MODEL
+            input, formatted_weaviate_results, CHAT_MODEL
         )
         logger.debug(f"Final recommendations: {recommendations}")
 
-        with st.chat_message("assistant"):
-            try:
-                # Extracts ids (as int) from LLM response
-                recommended_ids = extract_ids_from(recommendations, possible_ids)
+        try:
+            # Extracts ids (as int) from LLM response
+            recommended_ids = extract_ids_from(recommendations, possible_ids)
 
-                # Uses extracted ids to filter results from Weaviate
-                recommended_metadata = [
-                    result
-                    for result in results_pool
-                    if result["show_id"] in recommended_ids
-                ]
+            # Uses extracted ids to filter results from Weaviate
+            recommended_metadata = [
+                result
+                for result in results_pool
+                if result["show_id"] in recommended_ids
+            ]
 
-                # Renders final recommendations
-                for movie in recommended_metadata:
-                    st.markdown(
-                        f"<h2>{movie['title']}</h2><p><a href={movie['watch']}>View</a></p>",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(f"*{movie['description']}*")
-                    st.write(f"Genres: {movie['genres']}")
-                    st.write(f"Release date: {movie['release_date']}")
-                    st.write(f"Film score: {movie['vote_average']}")
-                    st.write(f"Cosine distance: {movie['_additional']['distance']}")
-                    st.video(_prepare_youtube_url(movie["trailer_url"]))
-                    st.write("----")
-
-            except LLMoviesOutputError:
-                st.write(
-                    "I wasn't able to find any movies for you. Try modifying your query."
+            # Renders final recommendations
+            for movie in recommended_metadata:
+                st.markdown(
+                    f"<h2>{movie['title']}</h2><p><a href={movie['watch']}>View</a></p>",
+                    unsafe_allow_html=True,
                 )
+                st.markdown(f"*{movie['description']}*")
+                st.write(f"Genres: {movie['genres']}")
+                st.write(f"Release date: {movie['release_date']}")
+                st.write(f"Film score: {movie['vote_average']}")
+                st.write(f"Cosine distance: {movie['_additional']['distance']}")
+                st.video(_prepare_youtube_url(movie["trailer_url"]))
+                st.write("----")
+
+        except LLMoviesOutputError:
+            st.write(
+                "I wasn't able to find any movies for you. Try modifying your query."
+            )
 
 
 if __name__ == "__main__":
