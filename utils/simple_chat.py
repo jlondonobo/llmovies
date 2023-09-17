@@ -27,6 +27,7 @@ def query_weaviate(
     genres: str | list[str] | None,
     max_embed_recommendations: int,
     min_vote_count: int,
+    input: str,
     weaviate_client: weaviate.Client,
 ) -> list[dict[str, Any]]:
     search_embedding = model.encode(text)
@@ -50,14 +51,14 @@ def query_weaviate(
         "valueTextArray": providers,
     }
     operands.append(providers_where)
-    
+
     min_vote_count_where = {
         "path": ["vote_count"],
         "operator": "GreaterThan",
         "valueInt": min_vote_count,
     }
     operands.append(min_vote_count_where)
-    
+
     if genres != "ALL":
         if isinstance(genres, str):
             genres = [genres]
@@ -76,72 +77,46 @@ def query_weaviate(
         .with_additional("distance")
         .with_near_vector(content={"vector": search_embedding})
         .with_where(where_filter)
+        .with_generate(
+            grouped_task=prompts.sort_movies_prompt.format(input),
+            grouped_properties=[
+                "title",
+                "description",
+                "release_date",
+                "vote_average",
+                "vote_count",
+                "show_id",
+            ],
+        )
         .do()["data"]["Get"]["Movie"]
     )
     return res
 
 
-def llm_generate_recommendation(
-    user_message: str,
-    formatted_results: dict[str, list[dict[str, Any]]],
-    chat_model: str,
-) -> str:
-    """Receives formatted input & movies. Outputs final recommendations."""
-    json_input = formatted_results | {"user_prompt": user_message}
-    rendered_input = json.dumps(json_input)
+def extract_titles_from(
+    recommendations: str, possible_titles: list[str]
+) -> list[str] | None:
+    """Receives a string of titles from the chatbot and returns them as str."""
 
-    response = openai.ChatCompletion.create(
-        model=chat_model,
-        messages=[
-            {"role": "system", "content": prompts.final_recommendations_system},
-            {"role": "user", "content": rendered_input},
-        ],
-    )
-    return response["choices"][0]["message"]["content"]
-
-
-def format_query_results(
-    results: list[dict[str, Any]]
-) -> tuple[dict[str, list[dict[str, Any]]], list[int]]:
-    """Returns results as expected by LLM and a list of ids."""
-    formatted_collection = []
-    ids_collection = []
-    for result in results:
-        formatted = {
-            "id": result["show_id"],
-            "title": result["title"],
-            "description": result["description"],
-            "genres": result["genres"],
-        }
-        formatted_collection.append(formatted)
-        ids_collection.append(result["show_id"])
-
-    final_collection = {"list": formatted_collection}
-    return final_collection, ids_collection
-
-
-def extract_ids_from(recommendations: str, possible_ids: list[int]) -> list[int] | None:
-    """Receives a string of ids from the chatbot and returns them as int if valid."""
-
-    def extract_ids_as_int(string: str) -> list[int]:
+    def extract_titles(string: str) -> list[int]:
         try:
-            split_ids = string.split(", ")
-            return [int(id) for id in split_ids if id != ""]
+            split_titles = string.split("|")
+            return [id for id in split_titles if id != ""]
         except ValueError:
             raise LLMoviesOutputError(
                 "The response from the chatbot was not in the expected format."
             )
 
-    def handle_valid_ids(ids: list[int]) -> None:
-        if len(ids) == 0:
+    def handle_valid_titles(titles: list[int]) -> None:
+        if len(titles) == 0:
             raise LLMoviesOutputError(
-                "Couldn't find any valid ids in the response from the chatbot."
+                "Couldn't find any valid titles in the response from the chatbot."
             )
 
-    ids_as_int = extract_ids_as_int(recommendations)
+    titles = extract_titles(recommendations)
 
-    valid_id_collection = [id for id in ids_as_int if id in possible_ids]
-    handle_valid_ids(valid_id_collection)
+    valid_id_collection = [title for title in titles if title in possible_titles]
+    handle_valid_titles(valid_id_collection)
 
     return valid_id_collection
 
@@ -156,6 +131,7 @@ def get_provider_name(provider_id: str):
 
 
 # -- APP --
+
 
 def main():
     load_dotenv()
@@ -226,26 +202,28 @@ def main():
             search_params.genre,
             N_MOVIES,
             MIN_VOTE_COUNT,
+            input,
             client,
         )
         logger.debug(f"Movie pool: {json.dumps(results_pool)}")
 
-        formatted_weaviate_results, possible_ids = format_query_results(results_pool)
-        recommendations = llm_generate_recommendation(
-            input, formatted_weaviate_results, CHAT_MODEL
-        )
+        possible_titles = [result["title"] for result in results_pool]
+        recommendations = results_pool[0]["_additional"]["generate"]["groupedResult"]
         logger.debug(f"Final recommendations: {recommendations}")
 
         try:
-            # Extracts ids (as int) from LLM response
-            recommended_ids = extract_ids_from(recommendations, possible_ids)
+            recommended_titles = extract_titles_from(recommendations, possible_titles)
 
-            # Uses extracted ids to filter results from Weaviate
-            recommended_metadata = [
-                result
-                for result in results_pool
-                if result["show_id"] in recommended_ids
-            ]
+            if len(recommended_titles) != len(possible_titles):
+                logger.debug(
+                    f"Found {len(recommended_titles)} valid titles out of {len(possible_titles)} possible titles."
+                )
+
+            # Uses titles to sort results from Weaviate
+            recommended_metadata = sorted(
+                results_pool,
+                key=lambda k: recommended_titles.index(k["title"]),
+            )
 
             # Renders final recommendations
             for movie in recommended_metadata:
