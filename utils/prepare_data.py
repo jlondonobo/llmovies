@@ -17,7 +17,7 @@ CLASS_DEFINITION = {
         {"name": "show_id", "dataType": ["int"]},
         {"name": "title", "dataType": ["text"]},
         {"name": "description", "dataType": ["text"]},
-        {"name": "release_date", "dataType": ["text"]},
+        {"name": "release_year", "dataType": ["int"]},
         {"name": "genres", "dataType": ["text[]"]},
         {"name": "trailer_url", "dataType": ["text"]},
         {"name": "watch", "dataType": ["text"]},
@@ -27,6 +27,7 @@ CLASS_DEFINITION = {
         {"name": "full_description", "dataType": ["text"]},
         {"name": "imdb_vote_average", "dataType": ["number"]},
         {"name": "imdb_vote_count", "dataType": ["int"]},
+        {"name": "runtime", "dataType": ["int"]},
     ],
 }
 
@@ -59,7 +60,8 @@ def read_movies(source: str) -> pd.DataFrame:
     res = pd.read_parquet(source)
     return res.assign(
         providers=lambda df: df["providers"].apply(np.ndarray.tolist),
-        genres_list=lambda df: df["genres_list"].str.split(", ")
+        genres_list=lambda df: df["genres_list"].str.split(", "),
+        release_year=lambda df: pd.to_datetime(df["release_date"]).dt.year,
     )
 
 
@@ -69,22 +71,24 @@ def format_description(row: dict[str, str | list]) -> str:
     return f"Description: {description}\nGenres: {genres}"
 
 
-
 def add_embeddings(data: pd.DataFrame) -> pd.DataFrame:
     return data.assign(
         full_description=lambda df: df.apply(format_description, axis=1),
         embedding=lambda df: df["full_description"].progress_apply(model.encode),
     )
 
+
 def parse_null_float(val: float) -> float | None:
     if np.isnan(val):
         return None
     return val
 
+
 def parse_null_int(val: int) -> int | None:
     if np.isnan(val):
         return None
     return int(val)
+
 
 def save_to_weaviate(data: pd.DataFrame, client: weaviate.Client) -> None:
     client.batch.configure(batch_size=100)
@@ -95,7 +99,7 @@ def save_to_weaviate(data: pd.DataFrame, client: weaviate.Client) -> None:
                 "title": row["title"],
                 "description": row["overview"],
                 "full_description": row["full_description"],
-                "release_date": row["release_date"],
+                "release_year": parse_null_int(row["release_year"]),
                 "genres": row["genres_list"],
                 "trailer_url": row["trailer"],
                 "watch": row["provider_url"],
@@ -104,6 +108,7 @@ def save_to_weaviate(data: pd.DataFrame, client: weaviate.Client) -> None:
                 "vote_count": row["vote_count"],
                 "imdb_vote_average": parse_null_float(row["imdb_vote_average"]),
                 "imdb_vote_count": parse_null_int(row["imdb_vote_count"]),
+                "runtime": row["runtime"],
             }
             batch.add_data_object(
                 properties, class_name="Movie", vector=row["embedding"]

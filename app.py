@@ -5,7 +5,6 @@ from logging import basicConfig, getLogger
 from typing import Any
 
 import openai
-import pendulum
 import streamlit as st
 import weaviate
 from dotenv import load_dotenv
@@ -39,13 +38,14 @@ def query_weaviate(
         "title",
         "description",
         "genres",
-        "release_date",
+        "release_year",
         "vote_average",
         "vote_count",
         "trailer_url",
         "watch",
         "providers",
         "show_id",
+        "runtime"
     ]
     operands = []
     providers_where = {
@@ -138,6 +138,12 @@ def get_provider_name(provider_id: str):
 
 def unsafe_html(html: str) -> st._DeltaGenerator:
     return st.markdown(html, unsafe_allow_html=True)
+
+
+def format_runtime(runtime: int) -> str:
+    hours = runtime // 60
+    minutes = runtime % 60
+    return f"{hours}h {minutes}m"
 
 
 # -- APP --
@@ -243,7 +249,7 @@ def main():
 
             # Renders final recommendations
             cols = st.columns(3)
-            
+
             # TODO: Move this to css file
             unsafe_html(
                 """
@@ -259,28 +265,36 @@ def main():
                     margin-left: 0;
                     padding-left: 0;
                     color: #737373;
+                    margin-right: 0.4em;
                 }
                 
                 .movie-title {
                     padding-bottom: 0px;
                 }
+                
+                .list-inline li:nth-child(2)::before {
+                    content: "·";  
+                    margin-right: 0.4em;
+                }
+                .list-inline li:nth-child(2) {
+                    line-height: 1.5; 
+                }
                 </style>
                 """
             )
-            
+
             for idx, movie in enumerate(recommended_metadata[:3]):
-                with cols[idx]: 
-                    unsafe_html(
-                        f"<h3 class='movie-title'>{movie['title']} </h3>"
-                    )
+                with cols[idx]:
+                    unsafe_html(f"<h3 class='movie-title'>{movie['title']} </h3>")
                     unsafe_html(
                         f"""
                         <ul class="list-inline">
-                        <li>{pendulum.parse(movie['release_date']).year}</li>
+                        <li>{movie['release_year']}</li>
+                        <li>{format_runtime(movie['runtime'])}</li>
                         </ul>
                         """
                     )
-                    
+
                     # unsafe_html(f"<a href={movie['watch']}> 👀 </a>")
                     st.markdown(f"*{movie['description']}*")
                     st.write(f"Genres: {movie['genres']}")
