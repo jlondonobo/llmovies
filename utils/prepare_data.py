@@ -64,7 +64,10 @@ def read_movies(source: str) -> pd.DataFrame:
 
 
 def format_description(row: dict[str, str | list]) -> str:
-    return row["overview"]
+    description = row["overview"]
+    genres = row["genres_list"]
+    return f"Description: {description}\nGenres: {genres}"
+
 
 
 def add_embeddings(data: pd.DataFrame) -> pd.DataFrame:
