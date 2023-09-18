@@ -5,6 +5,7 @@ from logging import basicConfig, getLogger
 from typing import Any
 
 import openai
+import pendulum
 import streamlit as st
 import weaviate
 from dotenv import load_dotenv
@@ -15,6 +16,8 @@ from utils.enums import Providers
 from utils.exceptions import LLMoviesOutputError
 from utils.model import model
 from utils.weaviate_client import client
+
+st.set_page_config(page_title="LLMovies", page_icon="🎬", layout="wide")
 
 basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -133,6 +136,10 @@ def get_provider_name(provider_id: str):
     return Providers(provider_id).name
 
 
+def unsafe_html(html: str) -> st._DeltaGenerator:
+    return st.markdown(html, unsafe_allow_html=True)
+
+
 # -- APP --
 
 
@@ -146,12 +153,16 @@ def main():
     button_input = None
     user_input = None
 
-    st.title("🎬 LLMovies")
-    st.subheader("Your go-to companion for movie nights")
+    unsafe_html("<h1 style='text-align: center;'>🎬 LLMovies</h1>")
+    unsafe_html(
+        "<h3 style='text-align: center;'>Your go-to companion for movie nights</h3>"
+    )
     with st.sidebar:
         # TODO: Remove default value in production
         openai_key = st.text_input(
-            "Your OpenAI API key 🔑", type="password", value=os.getenv("OPENAI_KEY")
+            "Paste your OpenAI API key 🔑",
+            type="password",
+            value=os.getenv("OPENAI_KEY"),
         )
 
         if openai_key is None:
@@ -159,13 +170,13 @@ def main():
         openai.api_key = openai_key
 
         available_services = st.multiselect(
-            "Your subscriptions 🍿",
+            "Select your subscriptions 🍿",
             [p.value for p in Providers],
             format_func=get_provider_name,
             placeholder="What are you paying for?",
         )
         if available_services == []:
-            st.warning("Next up, tap on your movie subscriptions! 🎬 Ready to roll?")
+            st.warning("Ready to roll? Select your subscriptions first!")
             st.stop()
 
         st.subheader("Try me out! 🤖")
@@ -231,18 +242,52 @@ def main():
             )
 
             # Renders final recommendations
-            for movie in recommended_metadata:
-                st.markdown(
-                    f"<h2>{movie['title']}</h2><p><a href={movie['watch']}>View</a></p>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(f"*{movie['description']}*")
-                st.write(f"Genres: {movie['genres']}")
-                st.write(f"Release date: {movie['release_date']}")
-                st.write(f"Film score: {movie['vote_average']}")
-                st.write(f"Cosine distance: {movie['_additional']['distance']}")
-                show_trailer(movie["trailer_url"])
-                st.write("----")
+            cols = st.columns(3)
+            
+            # TODO: Move this to css file
+            unsafe_html(
+                """
+                <style>
+                .list-inline {
+                    list-style: none;
+                    margin-left: 0;
+                    padding-left: 0;
+                }
+
+                .list-inline > li {
+                    display: inline-block;
+                    margin-left: 0;
+                    padding-left: 0;
+                    color: #737373;
+                }
+                
+                .movie-title {
+                    padding-bottom: 0px;
+                }
+                </style>
+                """
+            )
+            
+            for idx, movie in enumerate(recommended_metadata[:3]):
+                with cols[idx]: 
+                    unsafe_html(
+                        f"<h3 class='movie-title'>{movie['title']} </h3>"
+                    )
+                    unsafe_html(
+                        f"""
+                        <ul class="list-inline">
+                        <li>{pendulum.parse(movie['release_date']).year}</li>
+                        </ul>
+                        """
+                    )
+                    
+                    # unsafe_html(f"<a href={movie['watch']}> 👀 </a>")
+                    st.markdown(f"*{movie['description']}*")
+                    st.write(f"Genres: {movie['genres']}")
+                    st.write(f"Film score: {movie['vote_average']}")
+                    st.write(f"Cosine distance: {movie['_additional']['distance']}")
+                    show_trailer(movie["trailer_url"])
+                    st.write("----")
 
         except LLMoviesOutputError:
             st.write(
