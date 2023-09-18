@@ -1,9 +1,10 @@
 from typing import Literal
 
 import openai
-from agents.constants import CATEGORIES
 from instructor import OpenAISchema
 from pydantic import Field
+
+from utils.agents.constants import CATEGORIES
 
 
 class QueryParams(OpenAISchema):
