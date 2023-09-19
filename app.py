@@ -10,11 +10,10 @@ import weaviate
 from dotenv import load_dotenv
 
 from utils import prompts
-from utils.agents.input import extract_query_params
 from utils.enums import Providers
 from utils.exceptions import LLMoviesOutputError
+from utils.input import get_best_docs
 from utils.model import model
-from utils.weaviate_client import client
 
 st.set_page_config(page_title="LLMovies", page_icon="🎬", layout="wide")
 
@@ -151,11 +150,8 @@ def format_runtime(runtime: int) -> str:
 
 def main():
     load_dotenv()
-    CHAT_MODEL = os.environ["OPENAI_CHAT_MODEL"]
-    N_MOVIES = 10
-    MIN_VOTE_COUNT = 500
     # Initialize search_params and user_input
-    search_params = None
+    docs = None
     button_input = None
     user_input = None
 
@@ -190,11 +186,11 @@ def main():
         if st.button(q1):
             button_input = q1
 
-        q2 = "Can you recommend a comedy located in Italy?"
+        q2 = "Can you recommend a comedy located in Italy released after 2015.0?"
         if st.button(q2):
             button_input = q2
 
-        q3 = "Do you know any action movies with lots of explosions?"
+        q3 = "Do you know any thrillers with a rating higher than 8.0 and more than 1000.0 reviews?"
         if st.button(q3):
             button_input = q3
 
@@ -204,49 +200,20 @@ def main():
         input = button_input if button_input is not None else user_input
         # add_user_message_to_history(input, st.session_state)
         try:
-            search_params = extract_query_params(input, CHAT_MODEL)
+            docs = get_best_docs(input)
         except openai.error.AuthenticationError:
             st.error(
                 "Oops! It seems like your API key took a little detour. 🙃 Double-check and make sure it's the right one, will ya?"
             )
             st.stop()
-
-    if search_params is not None:
-        logger.debug(
-            f"Response from params generation: {search_params.model_dump_json()}"
-        )
-
-        results_pool = query_weaviate(
-            search_params.semantic_search,
-            available_services,
-            search_params.genre,
-            N_MOVIES,
-            MIN_VOTE_COUNT,
-            input,
-            client,
-        )
-        logger.debug(f"Movie pool: {json.dumps(results_pool)}")
-
-        possible_titles = [result["title"] for result in results_pool]
-        recommendations = results_pool[0]["_additional"]["generate"]["groupedResult"]
-        logger.debug(f"Final recommendations: {recommendations}")
-
-        try:
-            recommended_titles = extract_titles_from(recommendations, possible_titles)
-
-            if len(recommended_titles) != len(possible_titles):
-                logger.debug(
-                    f"Found {len(recommended_titles)} valid titles out of {len(possible_titles)} possible titles."
-                )
-
-            # Uses titles to sort results from Weaviate
-            recommended_metadata = sorted(
-                results_pool,
-                key=lambda k: recommended_titles.index(k["title"])
-                if k["title"] in recommended_titles
-                else N_MOVIES + 1,
+        except ValueError:
+            st.error(
+                "Did your numbers skip the float step? 🧐 Use floats in your query!"
             )
+            st.stop()
 
+    if docs is not None:
+        try:
             # Renders final recommendations
             cols = st.columns(3)
 
@@ -283,24 +250,26 @@ def main():
                 """
             )
 
-            for idx, movie in enumerate(recommended_metadata[:3]):
+            for idx, movie in enumerate(docs):
+                meta = movie.metadata
+                
+                
                 with cols[idx]:
-                    unsafe_html(f"<h3 class='movie-title'>{movie['title']} </h3>")
+                    unsafe_html(f"<h3 class='movie-title'>{meta['title']} </h3>")
                     unsafe_html(
                         f"""
                         <ul class="list-inline">
-                        <li>{movie['release_year']}</li>
-                        <li>{format_runtime(movie['runtime'])}</li>
+                        <li>{meta['release_year']}</li>
+                        <li>{format_runtime(meta['runtime'])}</li>
                         </ul>
                         """
                     )
 
                     # unsafe_html(f"<a href={movie['watch']}> 👀 </a>")
-                    st.markdown(f"*{movie['description']}*")
-                    st.write(f"Genres: {movie['genres']}")
-                    st.write(f"Film score: {movie['vote_average']}")
-                    st.write(f"Cosine distance: {movie['_additional']['distance']}")
-                    show_trailer(movie["trailer_url"])
+                    st.markdown(f"*{movie.page_content}*")
+                    st.write(f"Genres: {meta['genres']}")
+                    st.write(f"Film score: {meta['imdb_vote_average']}")
+                    show_trailer(meta["trailer_url"])
                     st.write("----")
 
         except LLMoviesOutputError:

@@ -4,7 +4,7 @@ from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain.schema import Document
 from langchain.vectorstores import Weaviate
 
-from weaviate_client import client
+from utils.weaviate_client import client
 
 CATEGORIES = [
     "Action",
@@ -37,11 +37,16 @@ METADATA_FIELD_INFO = [
     AttributeInfo(
         name="release_year",
         description="The year the movie was released",
-        type="integer",
+        type="float",
     ),
     AttributeInfo(
         name="imdb_vote_average",
         description="A 1-10 rating for the movie",
+        type="float",
+    ),
+    AttributeInfo(
+        name="imdb_vote_count",
+        description="The number of reviews the movie has on IMDB",
         type="float",
     ),
 ]
@@ -52,7 +57,19 @@ def get_best_docs(input: str) -> list[Document]:
     llm = OpenAI(temperature=0)
 
     vectorstore = Weaviate(
-        client, "Movie", "text", attributes=["title", "show_id", "genres", "vote_count"]
+        client,
+        "Movie",
+        "text",
+        attributes=[
+            "title",
+            "release_year",
+            "runtime",
+            "genres",
+            "imdb_vote_count",
+            "imdb_vote_average",
+            "trailer_url",
+            "watch",
+        ],
     )
     retriever = SelfQueryRetriever.from_llm(
         llm,
@@ -60,5 +77,7 @@ def get_best_docs(input: str) -> list[Document]:
         document_content_description,
         METADATA_FIELD_INFO,
         verbose=True,
+        search_kwargs={"k": 3},
     )
+
     return retriever.get_relevant_documents(input)
