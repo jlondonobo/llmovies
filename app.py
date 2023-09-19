@@ -26,7 +26,6 @@ def show_trailer(video: str | None):
         st.video(f"https://www.youtube.com/watch?v={video}")
     else:
         st.video(f"https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-        st.write(prompts.no_trailer_message)
 
 
 def get_provider_name(provider_id: str):
@@ -37,10 +36,19 @@ def unsafe_html(html: str) -> st._DeltaGenerator:
     return st.markdown(html, unsafe_allow_html=True)
 
 
+def genre_tags(genres: list[str]) -> str:
+    li = "".join(f"<span class='genre-tag'>{genre}</span>" for genre in genres)
+    return f"""
+    <div class="genre-tags">{li}</div>
+    """
+
+
+
 def format_runtime(runtime: int) -> str:
     hours = runtime // 60
     minutes = runtime % 60
     return f"{hours}h {minutes}m"
+
 
 
 # -- APP --
@@ -52,7 +60,7 @@ def main():
     docs = None
     button_input = None
     user_input = None
-
+    unsafe_html('<script src="https://kit.fontawesome.com/6a637d33a1.js" crossorigin="anonymous"></script>')
     unsafe_html("<h1 style='text-align: center;'>🎬 LLMovies</h1>")
     unsafe_html(
         "<h3 style='text-align: center;'>Your go-to companion for movie nights</h3>"
@@ -110,11 +118,13 @@ def main():
             )
             st.stop()
 
+    
     if docs is not None:
         try:
             # Renders final recommendations
             cols = st.columns(3)
 
+            
             # TODO: Move this to css file
             unsafe_html(
                 """
@@ -141,8 +151,40 @@ def main():
                     content: "·";  
                     margin-right: 0.4em;
                 }
+                .list-inline li:nth-child(3)::before {
+                    content: "·";  
+                    margin-right: 0.4em;
+                }
                 .list-inline li:nth-child(2) {
                     line-height: 1.5; 
+                }
+                .truncate {
+                    display: -webkit-box;
+                    -webkit-box-orient: vertical;
+                    -webkit-line-clamp: 5;
+                    overflow: hidden;
+                    max-height: 7.5em; /* Assuming line-height is 1.5em. Adjust as needed */
+                    line-height: 1.5em; 
+                    text-overflow: ellipsis;
+                    margin-top: 5px;
+                }
+                
+                .genre-tags {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px; /* spacing between tags */
+                }
+
+                .genre-tag {
+                    display: inline-block;
+                    padding: 3px 15px;  /* Adjust padding as needed for tag size */
+                    background-color: transparent;  /* No background color */
+                    color: #888888;  /* Gray text color */
+                    border: 1px solid #888888;  /* Gray border/stroke around the tag */
+                    border-radius: 50px;  /* Makes the tag rounded */
+                    font-size: 14px;  /* Adjust font-size as needed */
+                    font-weight: 500;  /* Adjust font-weight as desired */
+                    transition: color 0.3s ease, border-color 0.3s ease; /* Smooth transition effect for hover */
                 }
                 </style>
                 """
@@ -159,16 +201,15 @@ def main():
                         <ul class="list-inline">
                         <li>{meta['release_year']}</li>
                         <li>{format_runtime(meta['runtime'])}</li>
+                        <li><i class="fa-solid fa-star"></i>{meta['imdb_vote_average']:.1f}/10</li>
                         </ul>
                         """
                     )
 
                     # unsafe_html(f"<a href={movie['watch']}> 👀 </a>")
-                    st.markdown(f"*{movie.page_content}*")
-                    st.write(f"Genres: {meta['genres']}")
-                    st.write(f"Film score: {meta['imdb_vote_average']}")
                     show_trailer(meta["trailer_url"])
-                    st.write("----")
+                    unsafe_html(genre_tags(meta["genres"]))
+                    unsafe_html(f"<div class='truncate'>{movie.page_content}</div>")
 
         except LLMoviesOutputError:
             st.write(
