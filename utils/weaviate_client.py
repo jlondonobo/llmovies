@@ -7,7 +7,7 @@ load_dotenv()
 
 WEAVIATE_URL = os.environ["WEAVIATE_URL"]
 WEAVIATE_KEY = os.environ["WEAVIATE_KEY"]
-OPENAI_KEY = os.environ["OPENAI_KEY"]
+OPENAI_KEY = os.environ["OPENAI_API_KEY"]
 
 
 client = weaviate.Client(
