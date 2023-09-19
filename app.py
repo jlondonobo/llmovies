@@ -13,7 +13,6 @@ from utils import prompts
 from utils.enums import Providers
 from utils.exceptions import LLMoviesOutputError
 from utils.input import get_best_docs
-from utils.model import model
 
 st.set_page_config(page_title="LLMovies", page_icon="🎬", layout="wide")
 
@@ -22,112 +21,11 @@ basicConfig(
 )
 logger = getLogger(__name__)
 
-
-def query_weaviate(
-    text: str,
-    providers: list[int],
-    genres: str | list[str] | None,
-    max_embed_recommendations: int,
-    min_vote_count: int,
-    input: str,
-    weaviate_client: weaviate.Client,
-) -> list[dict[str, Any]]:
-    search_embedding = model.encode(text)
-    cols = [
-        "title",
-        "description",
-        "genres",
-        "release_year",
-        "vote_average",
-        "vote_count",
-        "trailer_url",
-        "watch",
-        "providers",
-        "show_id",
-        "runtime"
-    ]
-    operands = []
-    providers_where = {
-        "path": ["providers"],
-        "operator": "ContainsAny",
-        "valueInt": providers,
-    }
-    operands.append(providers_where)
-
-    min_vote_count_where = {
-        "path": ["vote_count"],
-        "operator": "GreaterThan",
-        "valueInt": min_vote_count,
-    }
-    operands.append(min_vote_count_where)
-
-    if genres != "ALL":
-        if isinstance(genres, str):
-            genres = [genres]
-        categories_where = {
-            "path": ["genres"],
-            "operator": "ContainsAny",
-            "valueTextArray": genres,
-        }
-        operands.append(categories_where)
-
-    where_filter = {"operator": "And", "operands": operands}
-    logger.debug(f"Where filter: {json.dumps(where_filter)}")
-
-    res = (
-        weaviate_client.query.get("Movie", cols)
-        .with_limit(max_embed_recommendations)
-        .with_additional("distance")
-        .with_near_vector(content={"vector": search_embedding})
-        .with_where(where_filter)
-        .with_generate(
-            grouped_task=prompts.sort_movies_prompt.format(input),
-            grouped_properties=[
-                "title",
-                "description",
-                "release_date",
-                "vote_average",
-                "vote_count",
-                "show_id",
-            ],
-        )
-        .do()["data"]["Get"]["Movie"]
-    )
-    return res
-
-
-def extract_titles_from(
-    recommendations: str, possible_titles: list[str]
-) -> list[str] | None:
-    """Receives a string of titles from the chatbot and returns them as str."""
-
-    def extract_titles(string: str) -> list[int]:
-        try:
-            split_titles = string.split("|")
-            return [id for id in split_titles if id != ""]
-        except ValueError:
-            raise LLMoviesOutputError(
-                "The response from the chatbot was not in the expected format."
-            )
-
-    def handle_valid_titles(titles: list[int]) -> None:
-        if len(titles) == 0:
-            raise LLMoviesOutputError(
-                "Couldn't find any valid titles in the response from the chatbot."
-            )
-
-    titles = extract_titles(recommendations)
-
-    valid_id_collection = [title for title in titles if title in possible_titles]
-    handle_valid_titles(valid_id_collection)
-
-    return valid_id_collection
-
-
 def show_trailer(video: str | None):
     if video:
         st.video(f"https://www.youtube.com/watch?v={video}")
     else:
+        st.video(f"https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         st.write(prompts.no_trailer_message)
 
 
