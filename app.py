@@ -2,14 +2,10 @@ import json
 import logging
 import os
 from logging import basicConfig, getLogger
-from typing import Any
 
 import openai
 import streamlit as st
-import weaviate
 from dotenv import load_dotenv
-
-from utils import prompts
 from utils.enums import Providers
 from utils.exceptions import LLMoviesOutputError
 from utils.input import get_best_docs
@@ -20,6 +16,7 @@ basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = getLogger(__name__)
+
 
 def show_trailer(video: str | None):
     if video:
@@ -43,12 +40,10 @@ def genre_tags(genres: list[str]) -> str:
     """
 
 
-
 def format_runtime(runtime: int) -> str:
     hours = runtime // 60
     minutes = runtime % 60
     return f"{hours}h {minutes}m"
-
 
 
 # -- APP --
@@ -60,7 +55,9 @@ def main():
     docs = None
     button_input = None
     user_input = None
-    unsafe_html('<script src="https://kit.fontawesome.com/6a637d33a1.js" crossorigin="anonymous"></script>')
+    unsafe_html(
+        '<script src="https://kit.fontawesome.com/6a637d33a1.js" crossorigin="anonymous"></script>'
+    )
     unsafe_html("<h1 style='text-align: center;'>🎬 LLMovies</h1>")
     unsafe_html(
         "<h3 style='text-align: center;'>Your go-to companion for movie nights</h3>"
@@ -78,10 +75,10 @@ def main():
         openai.api_key = openai_key
 
         available_services = st.multiselect(
-            "Select your subscriptions 🍿",
+            "Select your streaming services 🍿",
             [p.value for p in Providers],
             format_func=get_provider_name,
-            placeholder="What are you paying for?",
+            placeholder="Netflix, Hulu...",
         )
         if available_services == []:
             st.warning("Ready to roll? Select your subscriptions first!")
@@ -118,20 +115,18 @@ def main():
             )
             st.stop()
 
-    
     if docs is not None:
         try:
             # Renders final recommendations
             cols = st.columns(3)
 
-            
             # TODO: Move this to css file
             unsafe_html(
                 """
                 <style>
                 .list-inline {
                     list-style: none;
-                    margin-left: 0;
+                    margin: 0rem 0rem 0.2rem;
                     padding-left: 0;
                 }
 
@@ -186,14 +181,27 @@ def main():
                     font-weight: 500;  /* Adjust font-weight as desired */
                     transition: color 0.3s ease, border-color 0.3s ease; /* Smooth transition effect for hover */
                 }
+                .rounded-button {
+                    background-color: #012440; /* Button color */
+                    color: #0dc2ed; /* Text color */
+                    border: none; /* Removes the default border */
+                    border-radius: 30px; /* Rounds the button corners */
+                    padding: 3px 15px; /* Top/bottom and left/right padding */
+                    font-size: 16px; /* Font size */
+                    cursor: pointer; /* Changes the cursor to a hand on hover */
+                    transition: background-color 0.3s ease; /* Smooth transition for hover effect */
+                    margin: 0rem 0.2rem;
+                }
+
+                .rounded-button:hover {
+                    background-color: #0056b3; /* Slightly darker shade for hover effect */
+                }
                 </style>
                 """
             )
 
             for idx, movie in enumerate(docs):
                 meta = movie.metadata
-                
-                
                 with cols[idx]:
                     unsafe_html(f"<h3 class='movie-title'>{meta['title']} </h3>")
                     unsafe_html(
@@ -205,11 +213,17 @@ def main():
                         </ul>
                         """
                     )
-
-                    # unsafe_html(f"<a href={movie['watch']}> 👀 </a>")
                     show_trailer(meta["trailer_url"])
                     unsafe_html(genre_tags(meta["genres"]))
+                    unsafe_html(
+                        f"""
+                        <a href="{meta['watch']}" target="_blank" class="rounded-button-link">
+                            <button class="rounded-button">Watch now</button>
+                        </a>
+                        """
+                    )
                     unsafe_html(f"<div class='truncate'>{movie.page_content}</div>")
+                    
 
         except LLMoviesOutputError:
             st.write(
