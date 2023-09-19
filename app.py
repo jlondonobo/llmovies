@@ -10,7 +10,7 @@ from utils.enums import Providers
 from utils.exceptions import LLMoviesOutputError
 from utils.input import get_best_docs
 
-st.set_page_config(page_title="LLMovies", page_icon="🎬", layout="wide")
+st.set_page_config(page_title="LLMovies | Your go-to companion for movie nights", page_icon="🍿", layout="wide")
 
 basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -58,9 +58,9 @@ def main():
     unsafe_html(
         '<script src="https://kit.fontawesome.com/6a637d33a1.js" crossorigin="anonymous"></script>'
     )
-    unsafe_html("<h1 style='text-align: center;'>🎬 LLMovies</h1>")
+    unsafe_html("<h1 class='title'>🍿 LLMovies</h1>")
     unsafe_html(
-        "<h3 style='text-align: center;'>Your go-to companion for movie nights</h3>"
+        "<h3 class='subtitle''>Your go-to companion for movie nights</h3>"
     )
     with st.sidebar:
         # TODO: Remove default value in production
@@ -75,7 +75,7 @@ def main():
         openai.api_key = openai_key
 
         available_services = st.multiselect(
-            "Select your streaming services 🍿",
+            "Select your streaming services 🎬",
             [p.value for p in Providers],
             format_func=get_provider_name,
             placeholder="Netflix, Hulu...",
@@ -124,6 +124,13 @@ def main():
             unsafe_html(
                 """
                 <style>
+                .title {
+                    padding: 0px;
+                }
+                .subtitle {
+                    padding: 0rem 0rem 4rem;
+                }
+                
                 .list-inline {
                     list-style: none;
                     margin: 0rem 0rem 0.2rem;
@@ -190,7 +197,7 @@ def main():
                     font-size: 16px; /* Font size */
                     cursor: pointer; /* Changes the cursor to a hand on hover */
                     transition: background-color 0.3s ease; /* Smooth transition for hover effect */
-                    margin: 0rem 0.2rem;
+                    margin: 0.2rem 0rem;
                 }
 
                 .rounded-button:hover {
