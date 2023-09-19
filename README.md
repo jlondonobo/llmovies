@@ -4,7 +4,7 @@
 <h3 align="center">Your go-to companion for movie nights<h3>
 </p>
 <div align="center">
-  <a href="">
+  <a href="https://llmovies.streamlit.app/">
     <img src="https://static.streamlit.io/badges/streamlit_badge_black_white.svg" alt="Streamlit App"/>
   </a>
 </div>
