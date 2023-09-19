@@ -62,10 +62,24 @@ def main():
     )
     unsafe_html("<h1 id='title'>🍿 LLMovies</h1>")
     unsafe_html(
-        "<h3 id='subtitle''>Your go-to companion for movie nights</h3>"
+        "<p id='subtitle''>Your go-to companion for movie nights</p>"
     )
     with st.sidebar:
         # TODO: Remove default value in production
+        st.subheader("LLMovies")
+        st.write("LLMovies is an user-friendly application that simplifies your movie selection process. Search for a topic, genre, or movie and LLMovies will return 3 tailored trailers.")
+        
+        st.subheader("Features")
+        st.markdown(
+            """
+            - **AI-based Retrieval**:  Uses state of the art LangChain retrievers to transform natural language intro precise queries.
+            - **Weaviate integration**: Offers semantic search capabilities.
+            - **Broad catalog**: Catalog of 25,000+ movies from The Movie Database.
+            - **Accurate measures**: Uses IMDb ratings and reviews to provide accurate measures of quality.
+            """
+        )
+        
+        st.subheader("Get started 🚀")
         openai_key = st.text_input(
             "Paste your OpenAI API key 🔑",
             type="password",
@@ -87,7 +101,7 @@ def main():
             st.stop()
 
         st.subheader("Try me out! 🤖")
-        q1 = "I'd like to watch a movie about friendship."
+        q1 = "I'd like to watch a movie about friendship with a rating higher than 7.0."
         if st.button(q1):
             button_input = q1
 
@@ -98,9 +112,13 @@ def main():
         q3 = "Do you know any thrillers with a rating higher than 8.0 and more than 1000.0 reviews?"
         if st.button(q3):
             button_input = q3
+            
+      
+        
+        st.caption("This product uses the TMDB API but is not endorsed or certified by TMDB.")
 
     default_user_input = button_input if button_input is not None else ""
-    user_input = st.text_input("Send a message", value=default_user_input, placeholder="Serch for a topic, a genre ...")
+    user_input = st.text_input("Search", value=default_user_input, placeholder="Serch for a topic, a genre ...")
 
     if user_input != "" or button_input is not None:
         input = button_input if button_input is not None else user_input
@@ -114,7 +132,7 @@ def main():
             st.stop()
         except ValueError:
             st.error(
-                "Did your numbers skip the float step? 🧐 Use floats in your query!"
+                "Oops! 🎈 Let's keep things floaty. Please use floating point numbers (e.g., 10.5) instead of whole integers."
             )
             st.stop()
 
@@ -132,7 +150,7 @@ def main():
                         <ul class="list-inline">
                         <li>{meta['release_year']}</li>
                         <li>{format_runtime(meta['runtime'])}</li>
-                        <li><i class="fa-solid fa-star"></i>{meta['imdb_vote_average']:.1f}/10</li>
+                        <li><i class="fa-solid fa-star"></i>{meta['imdb_vote_average'] or 0:.1f}/10</li>
                         </ul>
                         """
                     )
