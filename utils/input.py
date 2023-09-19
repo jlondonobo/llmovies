@@ -75,7 +75,7 @@ def get_best_docs(input: str, providers: list[int]) -> list[Document]:
     where_filter = {
         "path": ["providers"],
         "operator": "ContainsAny",
-        "valueNumber": providers,
+        "valueNumber": [int(p) for p in providers],
     }
     retriever = SelfQueryRetriever.from_llm(
         llm,
