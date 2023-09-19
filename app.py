@@ -68,10 +68,10 @@ def main():
         st.subheader("Features")
         st.markdown(
             """
-            - **AI-based Retrieval**:  Uses state of the art LangChain retrievers to transform natural language intro precise queries.
+            - **AI-based Retrieval**:  Uses state of the art LangChain retrievers to transform natural language intro structured database queries.
             - **Weaviate integration**: Offers semantic search capabilities.
-            - **Broad catalog**: Catalog of 25,000+ movies from The Movie Database.
-            - **Accurate measures**: Uses IMDb ratings and reviews to provide accurate measures of quality.
+            - **Broad catalog**: Complies 25,000+ movies from The Movie Database.
+            - **Trusted measures**: Employs IMDb's ratings and review.
             """
         )
 
@@ -93,7 +93,7 @@ def main():
         )
 
 
-        st.subheader("Try me out! 🤖", help="These examples do not use the streaming service filter.")
+        st.subheader("Try me out! 🤖", help="Examples do not use the streaming service filter.")
         q1 = "I'd like to watch a movie about friendship with a rating higher than 7.0."
         if st.button(q1):
             button_input = q1
