@@ -80,11 +80,10 @@ def main():
             "Insert your OpenAI API key 🔑",
             type="password",
             value=os.getenv("OPENAI_KEY"),
+            help="Not required during evaluation phase for ease of use."
         )
 
-        if openai_key is None:
-            st.warning("Hey! 🌟 Pop in your API key, and let's kick things off!")
-        openai.api_key = openai_key
+        
 
         available_services = st.multiselect(
             "Select your streaming services 🎬",
@@ -92,9 +91,7 @@ def main():
             format_func=get_provider_name,
             placeholder="Netflix, Hulu...",
         )
-        if available_services == []:
-            st.warning("Ready to roll? Select your subscriptions first!")
-            st.stop()
+
 
         st.subheader("Try me out! 🤖")
         q1 = "I'd like to watch a movie about friendship with a rating higher than 7.0."
@@ -113,6 +110,14 @@ def main():
             "This product uses the TMDB API but is not endorsed or certified by TMDB."
         )
 
+    if openai_key is None:
+        st.warning("Hey! 🌟 Pop in your API key, and let's kick things off!")
+        st.stop()
+    openai.api_key = openai_key
+    
+    if available_services == []:
+        st.warning("👈 Ready to roll? Select your streaming services!")
+        st.stop()
     default_user_input = button_input if button_input is not None else ""
     user_input = st.text_input(
         "Search", value=default_user_input, placeholder="Serch for a topic, a genre ..."
