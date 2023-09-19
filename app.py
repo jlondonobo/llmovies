@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from utils.enums import Providers
 from utils.exceptions import LLMoviesOutputError
 from utils.input import get_best_docs
+from utils.utils import load_css
 
 st.set_page_config(page_title="LLMovies | Your go-to companion for movie nights", page_icon="🍿", layout="wide")
 
@@ -55,12 +56,13 @@ def main():
     docs = None
     button_input = None
     user_input = None
+    load_css("assets/custom.css")
     unsafe_html(
         '<script src="https://kit.fontawesome.com/6a637d33a1.js" crossorigin="anonymous"></script>'
     )
-    unsafe_html("<h1 class='title'>🍿 LLMovies</h1>")
+    unsafe_html("<h1 id='title'>🍿 LLMovies</h1>")
     unsafe_html(
-        "<h3 class='subtitle''>Your go-to companion for movie nights</h3>"
+        "<h3 id='subtitle''>Your go-to companion for movie nights</h3>"
     )
     with st.sidebar:
         # TODO: Remove default value in production
@@ -97,7 +99,8 @@ def main():
         if st.button(q3):
             button_input = q3
 
-        user_input = st.text_input("Send a message")
+    default_user_input = button_input if button_input is not None else ""
+    user_input = st.text_input("Send a message", value=default_user_input, placeholder="Serch for a topic, a genre ...")
 
     if user_input != "" or button_input is not None:
         input = button_input if button_input is not None else user_input
@@ -119,93 +122,6 @@ def main():
         try:
             # Renders final recommendations
             cols = st.columns(3)
-
-            # TODO: Move this to css file
-            unsafe_html(
-                """
-                <style>
-                .title {
-                    padding: 0px;
-                }
-                .subtitle {
-                    padding: 0rem 0rem 4rem;
-                }
-                
-                .list-inline {
-                    list-style: none;
-                    margin: 0rem 0rem 0.2rem;
-                    padding-left: 0;
-                }
-
-                .list-inline > li {
-                    display: inline-block;
-                    margin-left: 0;
-                    padding-left: 0;
-                    color: #737373;
-                    margin-right: 0.4em;
-                }
-                
-                .movie-title {
-                    padding-bottom: 0px;
-                }
-                
-                .list-inline li:nth-child(2)::before {
-                    content: "·";  
-                    margin-right: 0.4em;
-                }
-                .list-inline li:nth-child(3)::before {
-                    content: "·";  
-                    margin-right: 0.4em;
-                }
-                .list-inline li:nth-child(2) {
-                    line-height: 1.5; 
-                }
-                .truncate {
-                    display: -webkit-box;
-                    -webkit-box-orient: vertical;
-                    -webkit-line-clamp: 5;
-                    overflow: hidden;
-                    max-height: 7.5em; /* Assuming line-height is 1.5em. Adjust as needed */
-                    line-height: 1.5em; 
-                    text-overflow: ellipsis;
-                    margin-top: 5px;
-                }
-                
-                .genre-tags {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 8px; /* spacing between tags */
-                }
-
-                .genre-tag {
-                    display: inline-block;
-                    padding: 3px 15px;  /* Adjust padding as needed for tag size */
-                    background-color: transparent;  /* No background color */
-                    color: #888888;  /* Gray text color */
-                    border: 1px solid #888888;  /* Gray border/stroke around the tag */
-                    border-radius: 50px;  /* Makes the tag rounded */
-                    font-size: 14px;  /* Adjust font-size as needed */
-                    font-weight: 500;  /* Adjust font-weight as desired */
-                    transition: color 0.3s ease, border-color 0.3s ease; /* Smooth transition effect for hover */
-                }
-                .rounded-button {
-                    background-color: #012440; /* Button color */
-                    color: #0dc2ed; /* Text color */
-                    border: none; /* Removes the default border */
-                    border-radius: 30px; /* Rounds the button corners */
-                    padding: 3px 15px; /* Top/bottom and left/right padding */
-                    font-size: 16px; /* Font size */
-                    cursor: pointer; /* Changes the cursor to a hand on hover */
-                    transition: background-color 0.3s ease; /* Smooth transition for hover effect */
-                    margin: 0.2rem 0rem;
-                }
-
-                .rounded-button:hover {
-                    background-color: #0056b3; /* Slightly darker shade for hover effect */
-                }
-                </style>
-                """
-            )
 
             for idx, movie in enumerate(docs):
                 meta = movie.metadata
