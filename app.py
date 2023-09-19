@@ -83,17 +83,17 @@ def main():
             help="Not required during evaluation phase for ease of use."
         )
 
-        
 
-        available_services = st.multiselect(
+        st.multiselect(
             "Select your streaming services 🎬",
             [p.value for p in Providers],
             format_func=get_provider_name,
             placeholder="Netflix, Hulu...",
+            key="providers",
         )
 
 
-        st.subheader("Try me out! 🤖")
+        st.subheader("Try me out! 🤖", help="These examples do not use the streaming service filter.")
         q1 = "I'd like to watch a movie about friendship with a rating higher than 7.0."
         if st.button(q1):
             button_input = q1
@@ -115,19 +115,18 @@ def main():
         st.stop()
     openai.api_key = openai_key
     
-    if available_services == []:
+    if st.session_state.providers == []:
         st.warning("👈 Ready to roll? Select your streaming services!")
         st.stop()
+    
     default_user_input = button_input if button_input is not None else ""
     user_input = st.text_input(
         "Search", value=default_user_input, placeholder="Serch for a topic, a genre ..."
     )
-
     if user_input != "" or button_input is not None:
         input = button_input if button_input is not None else user_input
-        # add_user_message_to_history(input, st.session_state)
         try:
-            docs = get_best_docs(input)
+            docs = get_best_docs(input, providers=st.session_state.providers)    
         except openai.error.AuthenticationError:
             st.error(
                 "Oops! It seems like your API key took a little detour. 🙃 Double-check and make sure it's the right one, will ya?"

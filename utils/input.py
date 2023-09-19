@@ -52,7 +52,7 @@ METADATA_FIELD_INFO = [
 ]
 
 
-def get_best_docs(input: str) -> list[Document]:
+def get_best_docs(input: str, providers: list[int]) -> list[Document]:
     document_content_description = "Brief summary of a movie"
     llm = OpenAI(temperature=0)
 
@@ -71,13 +71,19 @@ def get_best_docs(input: str) -> list[Document]:
             "watch",
         ],
     )
+    
+    where_filter = {
+        "path": ["providers"],
+        "operator": "ContainsAny",
+        "valueNumber": providers,
+    }
     retriever = SelfQueryRetriever.from_llm(
         llm,
         vectorstore,
         document_content_description,
         METADATA_FIELD_INFO,
         verbose=True,
-        search_kwargs={"k": 3},
+        search_kwargs={"k": 3, "where_filter": where_filter},
     )
-
+    
     return retriever.get_relevant_documents(input)
