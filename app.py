@@ -1,7 +1,4 @@
-import json
-import logging
 import os
-from logging import basicConfig, getLogger
 
 import openai
 import streamlit as st
@@ -11,12 +8,11 @@ from utils.exceptions import LLMoviesOutputError
 from utils.input import get_best_docs
 from utils.utils import load_css
 
-st.set_page_config(page_title="LLMovies | Your go-to companion for movie nights", page_icon="🍿", layout="wide")
-
-basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+st.set_page_config(
+    page_title="LLMovies | Your go-to companion for movie nights",
+    page_icon="🍿",
+    layout="wide",
 )
-logger = getLogger(__name__)
 
 
 def show_trailer(video: str | None):
@@ -61,14 +57,14 @@ def main():
         '<script src="https://kit.fontawesome.com/6a637d33a1.js" crossorigin="anonymous"></script>'
     )
     unsafe_html("<h1 id='title'>🍿 LLMovies</h1>")
-    unsafe_html(
-        "<p id='subtitle''>Your go-to companion for movie nights</p>"
-    )
+    unsafe_html("<p id='subtitle''>Your go-to companion for movie nights</p>")
     with st.sidebar:
         # TODO: Remove default value in production
         st.subheader("LLMovies")
-        st.write("LLMovies is an user-friendly application that simplifies your movie selection process. Search for a topic, genre, or movie and LLMovies will return 3 tailored trailers.")
-        
+        st.write(
+            "LLMovies is an user-friendly application that simplifies your movie selection process. Search for a topic, genre, or movie and LLMovies will return 3 tailored trailers."
+        )
+
         st.subheader("Features")
         st.markdown(
             """
@@ -78,10 +74,10 @@ def main():
             - **Accurate measures**: Uses IMDb ratings and reviews to provide accurate measures of quality.
             """
         )
-        
+
         st.subheader("Get started 🚀")
         openai_key = st.text_input(
-            "Paste your OpenAI API key 🔑",
+            "Insert your OpenAI API key 🔑",
             type="password",
             value=os.getenv("OPENAI_KEY"),
         )
@@ -112,13 +108,15 @@ def main():
         q3 = "Do you know any thrillers with a rating higher than 8.0 and more than 1000.0 reviews?"
         if st.button(q3):
             button_input = q3
-            
-      
-        
-        st.caption("This product uses the TMDB API but is not endorsed or certified by TMDB.")
+
+        st.caption(
+            "This product uses the TMDB API but is not endorsed or certified by TMDB."
+        )
 
     default_user_input = button_input if button_input is not None else ""
-    user_input = st.text_input("Search", value=default_user_input, placeholder="Serch for a topic, a genre ...")
+    user_input = st.text_input(
+        "Search", value=default_user_input, placeholder="Serch for a topic, a genre ..."
+    )
 
     if user_input != "" or button_input is not None:
         input = button_input if button_input is not None else user_input
@@ -164,7 +162,6 @@ def main():
                         """
                     )
                     unsafe_html(f"<div class='truncate'>{movie.page_content}</div>")
-                    
 
         except LLMoviesOutputError:
             st.write(
