@@ -25,6 +25,9 @@ torch = ">=2.0.0, !=2.0.1"
 pytest = "^7.4.2"
 instructor = "^0.2.7"
 pendulum = "^2.1.2"
+lark = "^1.1.7"
+tiktoken = "^0.5.1"
+langchain-monorepo = {git = "https://github.com/prandell/langchain", rev = "add_extra_weaviate_filter_operators"}
 
 
 [tool.poetry.group.dev.dependencies]

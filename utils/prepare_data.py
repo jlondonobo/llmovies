@@ -1,35 +1,13 @@
 import numpy as np
 import pandas as pd
-import weaviate
-from model import model
+from dotenv import load_dotenv
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.schema import Document
+from langchain.vectorstores import Weaviate
 from tqdm import tqdm
 from weaviate_client import client
 
 tqdm.pandas(desc="Processing embeddings")
-
-CLASS_DEFINITION = {
-    "class": "Movie",
-    "vectorIndexConfig": {
-        "distance": "cosine",
-    },
-    "moduleConfig": {"generative-openai": {}},
-    "properties": [
-        {"name": "show_id", "dataType": ["int"]},
-        {"name": "title", "dataType": ["text"]},
-        {"name": "description", "dataType": ["text"]},
-        {"name": "release_year", "dataType": ["int"]},
-        {"name": "genres", "dataType": ["text[]"]},
-        {"name": "trailer_url", "dataType": ["text"]},
-        {"name": "watch", "dataType": ["text"]},
-        {"name": "providers", "dataType": ["int[]"]},
-        {"name": "vote_average", "dataType": ["number"]},
-        {"name": "vote_count", "dataType": ["int"]},
-        {"name": "full_description", "dataType": ["text"]},
-        {"name": "imdb_vote_average", "dataType": ["number"]},
-        {"name": "imdb_vote_count", "dataType": ["int"]},
-        {"name": "runtime", "dataType": ["int"]},
-    ],
-}
 
 
 def download_imdb_ratings() -> pd.DataFrame:
@@ -65,19 +43,6 @@ def read_movies(source: str) -> pd.DataFrame:
     )
 
 
-def format_description(row: dict[str, str | list]) -> str:
-    description = row["overview"]
-    genres = row["genres_list"]
-    return f"Description: {description}\nGenres: {genres}"
-
-
-def add_embeddings(data: pd.DataFrame) -> pd.DataFrame:
-    return data.assign(
-        full_description=lambda df: df.apply(format_description, axis=1),
-        embedding=lambda df: df["full_description"].progress_apply(model.encode),
-    )
-
-
 def parse_null_float(val: float) -> float | None:
     if np.isnan(val):
         return None
@@ -90,42 +55,45 @@ def parse_null_int(val: int) -> int | None:
     return int(val)
 
 
-def save_to_weaviate(data: pd.DataFrame, client: weaviate.Client) -> None:
-    client.batch.configure(batch_size=100)
-    with client.batch as batch:
-        for idx, row in data.iterrows():
-            properties = {
-                "show_id": row["id"],
-                "title": row["title"],
-                "description": row["overview"],
-                "full_description": row["full_description"],
-                "release_year": parse_null_int(row["release_year"]),
-                "genres": row["genres_list"],
-                "trailer_url": row["trailer"],
-                "watch": row["provider_url"],
-                "providers": row["providers"],
-                "vote_average": parse_null_float(row["vote_average"]),
-                "vote_count": row["vote_count"],
-                "imdb_vote_average": parse_null_float(row["imdb_vote_average"]),
-                "imdb_vote_count": parse_null_int(row["imdb_vote_count"]),
-                "runtime": row["runtime"],
-            }
-            batch.add_data_object(
-                properties, class_name="Movie", vector=row["embedding"]
-            )
+def create_documents(data: pd.DataFrame) -> list[Document]:
+    docs = []
+    for _, row in data.iterrows():
+        properties = {
+            "show_id": row["id"],
+            "title": row["title"],
+            "release_year": parse_null_int(row["release_year"]),
+            "genres": row["genres_list"],
+            "trailer_url": row["trailer"],
+            "watch": row["provider_url"],
+            "providers": row["providers"],
+            "vote_average": parse_null_float(row["vote_average"]),
+            "vote_count": row["vote_count"],
+            "imdb_vote_average": parse_null_float(row["imdb_vote_average"]),
+            "imdb_vote_count": parse_null_int(row["imdb_vote_count"]),
+            "runtime": row["runtime"],
+        }
+        doc = Document(page_content=row["overview"], metadata=properties)
+        docs.append(doc)
+    return docs
 
 
 def main():
+    load_dotenv()
     DATA_SOURCE = "data/final_movies.parquet"
     movies = read_movies(DATA_SOURCE)
     imdb_ratings = download_imdb_ratings()
     moviews_with_imbd_ratings = add_imdb_ratings(movies, imdb_ratings)
-    movies_with_embeddings = add_embeddings(moviews_with_imbd_ratings)
 
-    if client.schema.exists("Movie"):
-        client.schema.delete_class("Movie")
-    client.schema.create_class(CLASS_DEFINITION)
-    save_to_weaviate(movies_with_embeddings, client)
+    docs = create_documents(moviews_with_imbd_ratings)
+
+    embeddings = OpenAIEmbeddings()
+    Weaviate.from_documents(
+        docs,
+        embeddings,
+        index_name="Movie",
+        client=client,
+        text_key="overview",
+    )
 
 
 if __name__ == "__main__":
