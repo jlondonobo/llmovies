@@ -1,6 +1,9 @@
 <h1 align="center">🎬 LLMovies</h1>
 
-<!-- Add a screenshot of the site -->
+<p align="center">
+  <img height=400 src="https://github.com/jlondonobo/llmovies/assets/43001823/031fcc0e-afc1-4bdc-82b6-5a6925117016">
+</p>
+
 <h3 align="center">Your go-to companion for movie nights<h3>
 </p>
 <div align="center">
